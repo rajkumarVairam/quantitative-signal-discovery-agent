@@ -1,6 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.  # noqa
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Rank IC Evaluator Component for Factor Mining Workflow.
@@ -182,6 +193,18 @@ def extract_code_from_response(code_response: str) -> str:
     return code_response
 
 
+# Known operator function names (not factor functions)
+OPERATOR_NAMES = {
+    'TS_Return', 'TS_Std', 'TS_Mean', 'TS_Max', 'TS_Min', 'TS_Rank', 'TS_Sum',
+    'TS_Corr', 'TS_Cov', 'TS_Delta', 'TS_Delay', 'TS_Product', 'TS_Skewness',
+    'TS_Kurtosis', 'TS_Argmax', 'TS_Argmin', 'TS_WMA',
+    'Decay_Linear', 'Decay_Exp', 'EMA',
+    'CS_Rank', 'CS_Zscore', 'CS_Demean', 'CS_Scale',
+    'Rank', 'Add', 'Sub', 'Mul', 'Div', 'Abs', 'Sign', 'Log', 'Power', 'Sqrt',
+    'Max', 'Min', 'Neg', 'Sigmoid', 'Tanh', 'Clip',
+}
+
+
 def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
     """
     Execute factor code and return the factor values.
@@ -208,52 +231,98 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> pd.Da
         # Execute the code to define functions
         exec(code, namespace)
 
-        # Find the factor function(s) defined in the code
+        # Find factor functions (excluding operators and builtins)
         factor_functions = []
         for name, obj in namespace.items():
             if callable(obj) and not name.startswith('_') and name not in ['pd', 'np']:
-                # Check if it looks like a factor function (not a built-in operator)
                 if hasattr(obj, '__code__'):
-                    factor_functions.append((name, obj))
+                    # Skip known operator functions
+                    if name not in OPERATOR_NAMES:
+                        factor_functions.append((name, obj))
 
         if not factor_functions:
             logger.warning("No factor functions found in the code")
             return None
 
-        # Execute the last defined factor function (most likely the main one)
-        func_name, factor_func = factor_functions[-1]
-        logger.info(f"Executing factor function: {func_name}")
+        logger.info(f"Found {len(factor_functions)} factor function(s): {[f[0] for f in factor_functions]}")
 
-        # Determine which data fields the function needs
-        import inspect
-        sig = inspect.signature(factor_func)
-        params = list(sig.parameters.keys())
+        # Execute all factor functions and find the best one by absolute IC
+        best_result = None
+        best_ic = None
+        best_name = None
+        
+        for func_name, factor_func in factor_functions:
+            try:
+                # Determine which data fields the function needs
+                import inspect
+                sig = inspect.signature(factor_func)
+                params = list(sig.parameters.keys())
 
-        # Build kwargs based on function parameters
-        kwargs = {}
-        for param in params:
-            if param in stock_data:
-                kwargs[param] = stock_data[param]
+                # Build kwargs based on function parameters
+                kwargs = {}
+                for param in params:
+                    if param in stock_data:
+                        kwargs[param] = stock_data[param]
 
-        if kwargs:
-            result = factor_func(**kwargs)
-        else:
-            # Try calling with common data fields
-            result = factor_func(
-                Open=stock_data.get('Open'),
-                Close=stock_data.get('Close'),
-                High=stock_data.get('High'),
-                Low=stock_data.get('Low'),
-                Volume=stock_data.get('Volume'),
-            )
+                if kwargs:
+                    result = factor_func(**kwargs)
+                else:
+                    # Try calling with common data fields
+                    result = factor_func(
+                        Open=stock_data.get('Open'),
+                        Close=stock_data.get('Close'),
+                        High=stock_data.get('High'),
+                        Low=stock_data.get('Low'),
+                        Volume=stock_data.get('Volume'),
+                    )
 
-        if isinstance(result, pd.DataFrame):
-            return result
-        elif isinstance(result, pd.Series):
-            return result.to_frame()
-        else:
-            logger.warning(f"Factor function returned unexpected type: {type(result)}")
-            return None
+                if isinstance(result, pd.Series):
+                    result = result.to_frame()
+                
+                if isinstance(result, pd.DataFrame):
+                    # Compute IC on ALL dates (not just a sample) for accurate selection
+                    forward_ret = stock_data['Close'].shift(-5) / stock_data['Close'] - 1
+                    valid_dates = result.dropna(how='all').index
+                    sample_ics = []
+                    
+                    for date in valid_dates:
+                        if date in forward_ret.index:
+                            fr = result.loc[date].dropna()
+                            rr = forward_ret.loc[date].dropna()
+                            common = fr.index.intersection(rr.index)
+                            if len(common) >= 10:
+                                try:
+                                    from scipy import stats as sp_stats
+                                    corr, _ = sp_stats.spearmanr(fr[common], rr[common])
+                                    if not np.isnan(corr):
+                                        sample_ics.append(corr)
+                                except:
+                                    pass
+                    
+                    if sample_ics:
+                        mean_ic = abs(np.mean(sample_ics))  # Use |mean IC| for selection
+                        logger.info(f"  {func_name}: |IC| = {mean_ic:.4f}")
+                        
+                        if best_ic is None or mean_ic > best_ic:
+                            best_ic = mean_ic
+                            best_result = result
+                            best_name = func_name
+                    else:
+                        # No IC computed, but still a valid result
+                        if best_result is None:
+                            best_result = result
+                            best_name = func_name
+
+            except Exception as e:
+                logger.warning(f"Error executing {func_name}: {e}")
+                continue
+
+        if best_result is not None:
+            ic_str = f"{best_ic:.4f}" if best_ic is not None else "N/A"
+            logger.info(f"Selected best factor: {best_name} with |IC| = {ic_str}")
+            return best_result
+        
+        return None
 
     except Exception as e:
         logger.error(f"Error executing factor code: {e}")

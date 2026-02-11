@@ -1,6 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.  # noqa
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Factor Evaluator Component for Factor Mining Workflow.
@@ -455,6 +466,8 @@ async def factor_loop_executor_function(config: FactorLoopExecutorConfig, builde
         load_calculator_operators,
         format_operators_for_prompt,
         get_output_format_prompt,
+    )
+    from .factor_code_generator import (
         get_operator_code_map,
         extract_operators_from_json,
     )

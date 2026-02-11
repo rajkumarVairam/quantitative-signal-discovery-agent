@@ -20,14 +20,14 @@ Factor mining is the process of discovering quantitative signals (factors) that 
 │                                                   │             │
 │                         ┌─────────────────────────┘             │
 │                         ▼                                       │
-│              ┌─────────────────────┐                            │
-│              │  IC Good? Accept!   │                            │
-│              │  IC Poor? Optimize  │◀────────────┐              │
-│              └──────────┬──────────┘             │              │
-│                         │                        │              │
-│                         ▼                        │              │
-│              ┌─────────────────────┐             │              │
-│              │   Optimization      │─────────────┘              │
+│              ┌─────────────────────────────────────┐            │
+│              │  IC Good? Accept!                   │            │
+│              │  IC Poor? Optimize                  │◀───────┐   │
+│              └──────────┬──────────────────────────┘        │   │
+│                         │                                   │   │
+│                         ▼                                   │   │
+│              ┌─────────────────────┐                        │   │
+│              │   Optimization      │────────────────────────┘   │
 │              │   Feedback (LLM)    │                            │
 │              └─────────────────────┘                            │
 └─────────────────────────────────────────────────────────────────┘
@@ -64,15 +64,66 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
-## Usage
+## Deployment Options
 
-### Running via Command Line
+This workflow can be deployed in two ways:
+
+### Option 1: Interactive Notebook Deployment
+
+Best for exploration, experimentation, and learning. The notebook provides step-by-step execution with inline documentation.
 
 ```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Launch Jupyter
+jupyter notebook factor-mining-complete.ipynb
+```
+
+The notebook includes:
+- API key setup
+- Configuration exploration
+- Step-by-step workflow execution
+- Interactive result visualization
+- Ability to modify parameters on-the-fly
+
+### Option 2: CLI Deployment
+
+Best for production, automation, and scripting. Run the workflow directly from the command line.
+
+#### Basic Usage
+
+```bash
+# Run the factor mining workflow
 nat run --config_file configs/config-optimization.yml --input "momentum factors"
 ```
 
-### Running Different Factor Types
+#### With Phoenix Tracing (Recommended)
+
+For full observability with LLM tracing, run Phoenix in a separate terminal first:
+
+**Terminal 1 - Start Phoenix Server:**
+```bash
+source .venv/bin/activate
+phoenix serve
+```
+
+Phoenix will start at http://localhost:6006
+
+**Terminal 2 - Run the Workflow:**
+```bash
+source .venv/bin/activate
+export NVIDIA_API_KEY="your-api-key-here"
+nat run --config_file configs/config-optimization.yml --input "momentum factors"
+```
+
+View traces at http://localhost:6006 to see:
+- LLM calls and responses
+- Token usage
+- Latency metrics
+- Full execution trace
+
+#### Running Different Factor Types
 
 ```bash
 # Generate volatility factors
@@ -80,6 +131,9 @@ nat run --config_file configs/config-optimization.yml --input "volatility factor
 
 # Generate mean reversion factors
 nat run --config_file configs/config-optimization.yml --input "mean reversion factors"
+
+# Generate volume-based factors
+nat run --config_file configs/config-optimization.yml --input "volume price divergence factors"
 ```
 
 ## Components
@@ -116,6 +170,11 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 | **P-value** | Probability IC is different from zero | < 0.05 is significant |
 | **Positive IC Ratio** | Fraction of periods with positive IC | > 0.55 is good |
 
+### Understanding Sample IC vs Mean IC
+
+- **Sample IC**: Quick evaluation of factor quality during generation. Computed on a single pass through the data.
+- **Mean IC**: The average rank correlation computed across all time periods (e.g., 3,246 daily observations). This is the final evaluation metric used for acceptance decisions.
+
 ## Project Structure
 
 ```
@@ -133,6 +192,7 @@ factor_mining_complete/
         ├── factor_generator.py
         ├── factor_mining_workflow.py
         ├── factor_optimization_agent.py
+        ├── output_formatter.py
         ├── rank_ic_evaluator.py
         ├── register.py
         ├── output/               # Generated factors saved here
@@ -144,8 +204,8 @@ factor_mining_complete/
 ## Additional Resources
 
 - [NeMo Agent Toolkit Documentation](https://docs.nvidia.com/nemo-agent-toolkit/)
+- [Arize Phoenix Documentation](https://arize.com/docs/phoenix)
 
 ## License
 
 See LICENSE file for details.
-
