@@ -15,25 +15,19 @@
 
 # flake8: noqa
 
-# Import the generated workflow function to trigger registration
-from .factor_mining_workflow import factor_mining_workflow_function
+"""Factor Mining Workflow - NAT Function Registration."""
 
-# Import factor generation components
+# Factor generation
 from .factor_generator import factor_generator_function
 from .factor_generator import factor_validator_function
 from .factor_generator import list_operators_function
 
-# Import factor code generator
+# Code generation
 from .factor_code_generator import factor_code_generator_function
 
-# Import factor evaluation components
-from .rank_ic_evaluator import rank_ic_evaluator_function
+# Factor evaluation
 from .factor_evaluator import factor_evaluator_function
 from .factor_evaluator import factor_loop_executor_function
 
-# Import factor optimization agent
-from .factor_optimization_agent import factor_optimization_agent_function
-
-# Import output formatter
-from .output_formatter import output_formatter_function
-from .output_formatter import factor_optimizer_function
+# Main optimization workflow (orchestrator)
+from .factor_mining_optimization_workflow import factor_optimizer_function
