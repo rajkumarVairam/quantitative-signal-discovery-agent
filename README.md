@@ -1,4 +1,4 @@
-# Factor Mining Workflow with NeMo Agent Toolkit
+# Quant Factor Mining Agent developer example
 
 An end-to-end factor mining workflow for quantitative finance using NVIDIA NeMo Agent Toolkit. This workflow demonstrates how to leverage LLMs to automatically generate, code, and evaluate alpha factors.
 
@@ -8,30 +8,7 @@ Factor mining is the process of discovering quantitative signals (factors) that 
 
 ### Workflow Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Factor Optimization Agent                      │
-│                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   Factor    │    │    Code     │    │    Rank IC          │  │
-│  │  Generator  │───▶│  Generator  │───▶│    Evaluator        │  │
-│  │   (LLM)     │    │   (LLM)     │    │  (Statistical)      │  │
-│  └─────────────┘    └─────────────┘    └──────────┬──────────┘  │
-│                                                   │             │
-│                         ┌─────────────────────────┘             │
-│                         ▼                                       │
-│              ┌─────────────────────────────────────┐            │
-│              │  IC Good? Accept!                   │            │
-│              │  IC Poor? Optimize                  │◀───────┐   │
-│              └──────────┬──────────────────────────┘        │   │
-│                         │                                   │   │
-│                         ▼                                   │   │
-│              ┌─────────────────────┐                        │   │
-│              │   Optimization      │────────────────────────┘   │
-│              │   Feedback (LLM)    │                            │
-│              └─────────────────────┘                            │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Workflow Architecture](notebooks/images/workflow-architecture.png)
 
 The workflow uses a **closed-loop optimization** approach:
 1. Generate factor ideas using an LLM
@@ -64,6 +41,22 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
+### Download Data
+
+The workflow requires S&P 500 price-volume data (Open, Close, High, Low, Volume). Use the included script to download fresh data via [yfinance](https://github.com/ranaroussi/yfinance):
+
+```bash
+python -m factor_mining_workflow.download_data
+```
+
+You can customize the date range:
+
+```bash
+python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2025-12-31
+```
+
+> **Disclaimer:** Each user is responsible for checking the content of datasets and the applicable licenses and determining if suitable for the intended use.
+
 ## Deployment Options
 
 This workflow can be deployed in two ways:
@@ -77,7 +70,7 @@ Best for exploration, experimentation, and learning. The notebook provides step-
 source .venv/bin/activate
 
 # Launch Jupyter
-jupyter notebook factor-mining-complete.ipynb
+jupyter notebook notebooks/factor-mining-workflow.ipynb
 ```
 
 The notebook includes:
@@ -140,10 +133,10 @@ nat run --config_file configs/config-optimization.yml --input "volume price dive
 
 | Component | Description |
 |-----------|-------------|
-| **Factor Generator** | Uses an LLM to create quantitative factor descriptions based on price-volume data |
-| **Code Generator** | Converts factor descriptions into executable Python code |
-| **Rank IC Evaluator** | Computes Spearman correlation between factor values and forward returns |
-| **Factor Optimization Agent** | Orchestrates the optimization loop with feedback |
+| **Factor Agent** | Uses an LLM to generate factor expressions based on price-volume data and operators |
+| **Code Agent** | Converts factor expressions into executable Python code using the `Get_calculator` tool |
+| **Eval Agent** | Performs backtesting via Rank IC and generates optimization suggestions |
+| **Data Download Script** | Fetches S&P 500 price-volume data from Yahoo Finance via `yfinance` |
 
 ## Configuration
 
@@ -151,9 +144,11 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 
 | Parameter | Description |
 |-----------|-------------|
-| `llm_name` | The LLM to use for factor generation and optimization advice |
-| `ic_threshold` | Minimum absolute IC value to accept a factor (e.g., 0.03 = 3%) |
-| `p_value_threshold` | Maximum p-value for statistical significance (e.g., 0.1 = 10%) |
+| `factor_generator_llm` | LLM for generating factor expressions (higher temperature for creativity) |
+| `code_generator_llm` | LLM for converting expressions to executable code (lower temperature for precision) |
+| `optimization_advisor_llm` | LLM for generating optimization feedback (balanced temperature) |
+| `ic_threshold` | Minimum absolute IC value to accept a factor (e.g., 0.02 = 2%) |
+| `p_value_threshold` | Maximum p-value for statistical significance (e.g., 0.05 = 5%) |
 | `max_iterations` | Maximum number of optimization iterations before accepting best result |
 | `num_factors` | Number of factors to generate per iteration |
 | `forward_periods` | Number of days for forward return calculation (e.g., 5 = weekly) |
@@ -178,24 +173,25 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 ## Project Structure
 
 ```
-factor_mining_complete/
+quant-factor-mining-agent/
 ├── configs/
 │   └── config-optimization.yml
-├── factor-mining-complete.ipynb
+├── notebooks/
+│   ├── factor-mining-workflow.ipynb
+│   └── images/
+│       └── workflow-architecture.png
 ├── pyproject.toml
 ├── README.md
 └── src/
     └── factor_mining_workflow/
         ├── __init__.py
-        ├── data/sp500/           # Sample market data
+        ├── data/sp500/           # S&P 500 price-volume data
+        ├── download_data.py      # Script to fetch data via yfinance
+        ├── factor_code_generator.py
         ├── factor_evaluator.py
         ├── factor_generator.py
-        ├── factor_mining_workflow.py
-        ├── factor_optimization_agent.py
-        ├── output_formatter.py
-        ├── rank_ic_evaluator.py
+        ├── factor_mining_optimization_workflow.py
         ├── register.py
-        ├── output/               # Generated factors saved here
         └── template/
             ├── calculator.json
             └── factor_output_template.json

@@ -6,6 +6,7 @@
 # 4. Accept if IC meets threshold, otherwise retry with feedback
 
 # Global settings with Phoenix tracing
+# Run `phoenix serve` in a separate terminal before running the workflow
 general:
   telemetry:
     tracing:
@@ -18,21 +19,24 @@ llms:
   # Factor Generator: Creative model for generating factor ideas
   factor_generator:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5
+    base_url: "https://inference-api.nvidia.com/v1/"
     temperature: 0.8          # Higher temperature for creativity
     max_tokens: 4096
 
   # Code Generator: Precise model for generating executable code
   code_generator:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5
+    base_url: "https://inference-api.nvidia.com/v1/"
     temperature: 0.3          # Lower temperature for precision
     max_tokens: 4096
 
   # Optimization Advisor: Analytical model for providing feedback
   optimization_advisor:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5
+    base_url: "https://inference-api.nvidia.com/v1/"
     temperature: 0.5          # Balanced for analysis
     max_tokens: 2048
 

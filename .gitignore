@@ -1,3 +1,6 @@
 *.egg-info/
 __pycache__/
 output/
+.venv/
+.vscode/
+src/factor_mining_workflow/data/sp500/*.csv
