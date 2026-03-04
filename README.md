@@ -142,6 +142,10 @@ nat run --config_file configs/config-optimization.yml --input "volume price dive
 
 The workflow configuration is defined in `configs/config-optimization.yml`:
 
+> **Note:** The `base_url` for the LLMs depends on your API key. Set it to either:
+> - `https://integrate.api.nvidia.com/v1/` — for keys from [build.nvidia.com](https://build.nvidia.com)
+> - `https://inference-api.nvidia.com/v1/` — for NVIDIA internal or enterprise API keys
+
 | Parameter | Description |
 |-----------|-------------|
 | `factor_generator_llm` | LLM for generating factor expressions (higher temperature for creativity) |
