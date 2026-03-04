@@ -160,19 +160,14 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 
 ## Evaluation Metrics
 
-| Metric | Description | Good Value |
-|--------|-------------|------------|
-| **Mean IC** | Average Spearman correlation between factor and forward returns | \|IC\| > 0.03 |
-| **IC Std** | Standard deviation of IC values | Lower is more consistent |
-| **IC IR** | Information Ratio = Mean IC / IC Std | > 0.5 is good |
-| **T-statistic** | Statistical significance of mean IC | \|t\| > 2 is significant |
-| **P-value** | Probability IC is different from zero | < 0.05 is significant |
-| **Positive IC Ratio** | Fraction of periods with positive IC | > 0.55 is good |
+The workflow uses two key metrics to decide whether to accept or reject a generated factor:
 
-### Understanding Sample IC vs Mean IC
+| Metric | Description | Acceptance Criteria |
+|--------|-------------|---------------------|
+| **Mean IC** | Average Spearman rank correlation between factor values and forward returns, computed across all time periods | \|IC\| ≥ `ic_threshold` (default: 0.02) |
+| **P-value** | Statistical significance of the mean IC being different from zero | ≤ `p_value_threshold` (default: 0.05) |
 
-- **Sample IC**: Quick evaluation of factor quality during generation. Computed on a single pass through the data.
-- **Mean IC**: The average rank correlation computed across all time periods (e.g., 3,246 daily observations). This is the final evaluation metric used for acceptance decisions.
+A factor is accepted when both criteria are met. Otherwise, the Eval Agent generates optimization suggestions and the workflow retries.
 
 ## Project Structure
 
