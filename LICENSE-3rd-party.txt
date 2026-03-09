@@ -15,6 +15,7 @@ Packages under the Apache License, Version 2.0:
     - openinference-instrumentation-langchain - Copyright 2023-2025 Arize AI, Inc.
     - scipy - Copyright 2001-2002 Enthought, Inc. All rights reserved.
               Copyright 2003-2025 SciPy Developers. All rights reserved.
+    - yfinance - Copyright 2017-2025 Ran Aroussi.
 
 
 Full Apache License, Version 2.0 Text:
