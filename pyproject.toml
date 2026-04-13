@@ -30,6 +30,7 @@ dependencies = [
   "arize-phoenix",
   "arize-phoenix-otel",
   "openinference-instrumentation-langchain",
+  "jupyter",
 ]
 requires-python = ">=3.11,<3.14"
 description = "Factor Mining Workflow - Example for NeMo Agent Toolkit"

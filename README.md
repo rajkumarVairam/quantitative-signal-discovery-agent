@@ -46,13 +46,13 @@ uv pip install -e .
 The workflow requires S&P 500 price-volume data (Open, Close, High, Low, Volume). Use the included script to download fresh data via [yfinance](https://github.com/ranaroussi/yfinance):
 
 ```bash
-python -m factor_mining_workflow.download_data
+uv run python -m factor_mining_workflow.download_data
 ```
 
 You can customize the date range:
 
 ```bash
-python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2025-12-31
+uv run python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2025-12-31
 ```
 
 > **Disclaimer:** Each user is responsible for checking the content of datasets and the applicable licenses and determining if suitable for the intended use.
@@ -66,11 +66,7 @@ This workflow can be deployed in two ways:
 Best for exploration, experimentation, and learning. The notebook provides step-by-step execution with inline documentation.
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Launch Jupyter
-jupyter notebook notebooks/factor-mining-workflow.ipynb
+uv run jupyter notebook notebooks/factor-mining-workflow.ipynb
 ```
 
 The notebook includes:
@@ -88,7 +84,7 @@ Best for production, automation, and scripting. Run the workflow directly from t
 
 ```bash
 # Run the factor mining workflow
-nat run --config_file configs/config-optimization.yml --input "momentum factors"
+uv run nat run --config_file configs/config-optimization.yml --input "momentum factors"
 ```
 
 #### With Phoenix Tracing (Recommended)
@@ -97,17 +93,15 @@ For full observability with LLM tracing, run Phoenix in a separate terminal firs
 
 **Terminal 1 - Start Phoenix Server:**
 ```bash
-source .venv/bin/activate
-phoenix serve
+uv run phoenix serve
 ```
 
 Phoenix will start at http://localhost:6006
 
 **Terminal 2 - Run the Workflow:**
 ```bash
-source .venv/bin/activate
 export NVIDIA_API_KEY="your-api-key-here"
-nat run --config_file configs/config-optimization.yml --input "momentum factors"
+uv run nat run --config_file configs/config-optimization.yml --input "momentum factors"
 ```
 
 View traces at http://localhost:6006 to see:
@@ -120,13 +114,13 @@ View traces at http://localhost:6006 to see:
 
 ```bash
 # Generate volatility factors
-nat run --config_file configs/config-optimization.yml --input "volatility factors"
+uv run nat run --config_file configs/config-optimization.yml --input "volatility factors"
 
 # Generate mean reversion factors
-nat run --config_file configs/config-optimization.yml --input "mean reversion factors"
+uv run nat run --config_file configs/config-optimization.yml --input "mean reversion factors"
 
 # Generate volume-based factors
-nat run --config_file configs/config-optimization.yml --input "volume price divergence factors"
+uv run nat run --config_file configs/config-optimization.yml --input "volume price divergence factors"
 ```
 
 ## Components
