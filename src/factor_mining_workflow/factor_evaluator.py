@@ -222,16 +222,16 @@ OPERATOR_NAMES = {
 }
 
 
-def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
+def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str] | None:
     """
-    Execute factor code and return the factor values.
+    Execute factor code and return the factor values with the selected factor name.
 
     Args:
         code: Python code string containing factor function(s).
         stock_data: Dictionary of stock data DataFrames.
 
     Returns:
-        DataFrame of factor values, or None if execution fails.
+        Tuple of (factor_values DataFrame, selected_factor_name), or None if execution fails.
     """
     # Create execution namespace with required modules and data
     namespace = {
@@ -351,7 +351,7 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> pd.Da
         if best_result is not None:
             ic_str = f"{best_ic:.4f}" if best_ic is not None else "N/A"
             logger.info(f"Selected best factor: {best_name} with |IC| = {ic_str}")
-            return best_result
+            return best_result, best_name
         
         return None
 
@@ -677,9 +677,9 @@ Provide specific optimization advice (3-5 bullet points):"""
 
         # Extract and execute factor code
         clean_code = extract_code_from_response(factor_code)
-        factor_values = execute_factor_code(clean_code, stock_data)
+        exec_result = execute_factor_code(clean_code, stock_data)
 
-        if factor_values is None:
+        if exec_result is None:
             advice = (
                 "Factor code execution failed. Please ensure:\n"
                 "1. The factor function is properly defined\n"
@@ -691,6 +691,8 @@ Provide specific optimization advice (3-5 bullet points):"""
                 "error": "Failed to execute factor code",
                 "optimization_advice": advice,
             }, indent=2)
+
+        factor_values, selected_factor = exec_result
 
         # Compute forward returns and rank IC
         close_data = stock_data.get('Close')
@@ -716,6 +718,7 @@ Provide specific optimization advice (3-5 bullet points):"""
 
             return json.dumps({
                 "status": "accepted",
+                "selected_factor": selected_factor,
                 "evaluation_metrics": ic_results,
                 "saved_path": saved_path,
                 "message": f"Factor accepted with IC={mean_ic:.4f}",
@@ -948,14 +951,16 @@ Generate ONLY the factor function:"""
             return {"status": "error", "error": "No stock data"}
 
         clean_code = extract_code_from_response(factor_code)
-        factor_values = execute_factor_code(clean_code, stock_data)
+        exec_result = execute_factor_code(clean_code, stock_data)
 
-        if factor_values is None:
+        if exec_result is None:
             return {
                 "status": "needs_improvement",
                 "error": "Code execution failed",
                 "mean_ic": None,
             }
+
+        factor_values, selected_factor = exec_result
 
         close_data = stock_data.get('Close')
         forward_returns = compute_forward_returns(close_data, periods=config.forward_periods)
@@ -973,6 +978,7 @@ Generate ONLY the factor function:"""
 
         return {
             "status": "accepted" if is_acceptable else "needs_improvement",
+            "selected_factor": selected_factor,
             "mean_ic": mean_ic,
             "p_value": p_value,
             "ic_results": ic_results,
@@ -1026,10 +1032,12 @@ Provide 3-5 specific improvements:"""
             return None
 
         clean_code = extract_code_from_response(factor_code)
-        factor_values = execute_factor_code(clean_code, stock_data)
+        exec_result = execute_factor_code(clean_code, stock_data)
 
-        if factor_values is None:
+        if exec_result is None:
             return {"error": "Could not execute factor code for backtest"}
+
+        factor_values, _ = exec_result
 
         close_data = stock_data.get('Close')
         if close_data is None:
@@ -1112,6 +1120,7 @@ Provide 3-5 specific improvements:"""
                 return json.dumps({
                     "status": "accepted",
                     "iterations": iteration,
+                    "selected_factor": eval_results.get("selected_factor"),
                     "factor_code": factor_code,
                     "evaluation_metrics": eval_results["ic_results"],
                     "backtest_performance": backtest_results,
@@ -1152,6 +1161,7 @@ Provide 3-5 specific improvements:"""
             return json.dumps({
                 "status": "best_effort",
                 "iterations": config.max_iterations,
+                "selected_factor": best_result["eval_results"].get("selected_factor"),
                 "factor_code": best_result["factor_code"],
                 "evaluation_metrics": best_result["eval_results"].get("ic_results", {}),
                 "backtest_performance": backtest_results,

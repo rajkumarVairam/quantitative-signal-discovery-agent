@@ -64,13 +64,16 @@ def save_factor_results(factor_json: str, factor_code: str, ic_results: dict, it
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = OUTPUT_DIR / f"factor_{timestamp}_iter{iteration}.json"
     
+    metrics = {k: v for k, v in ic_results.items() if k != "selected_factor"}
+    
     with open(filepath, "w") as f:
         json.dump({
             "timestamp": timestamp,
             "iteration": iteration,
+            "selected_factor": ic_results.get("selected_factor"),
             "factor_description": factor_json,
             "factor_code": factor_code,
-            "evaluation_metrics": ic_results,
+            "evaluation_metrics": metrics,
         }, f, indent=2)
     
     logger.info(f"Saved factor results to {filepath}")
@@ -209,17 +212,21 @@ Write factor functions. Each must:
             return {"error": "No stock data", "mean_ic": None}
         
         clean_code = extract_code_from_response(factor_code)
-        factor_values = execute_factor_code(clean_code, stock_data)
+        exec_result = execute_factor_code(clean_code, stock_data)
         
-        if factor_values is None:
+        if exec_result is None:
             return {"error": "Code execution failed", "mean_ic": None}
+        
+        factor_values, selected_factor = exec_result
         
         close = stock_data.get('Close')
         if close is None:
             return {"error": "No Close data", "mean_ic": None}
         
         forward_returns = compute_forward_returns(close, periods=config.forward_periods)
-        return compute_rank_ic(factor_values, forward_returns)
+        ic_results = compute_rank_ic(factor_values, forward_returns)
+        ic_results["selected_factor"] = selected_factor
+        return ic_results
 
     def is_acceptable(ic_results: dict) -> bool:
         """Check if factor meets thresholds."""
