@@ -36,5 +36,11 @@ requires-python = ">=3.11,<3.14"
 description = "Factor Mining Workflow - Example for NeMo Agent Toolkit"
 classifiers = ["Programming Language :: Python"]
 
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
 [project.entry-points.'nat.components']
 factor_mining_workflow = "factor_mining_workflow.register"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
