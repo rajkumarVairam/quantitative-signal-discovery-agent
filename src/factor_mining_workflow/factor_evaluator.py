@@ -21,7 +21,7 @@ This module provides:
 2. Factor code execution and evaluation
 3. NAT functions for factor evaluation and optimization
 
-The rank IC measures the Spearman correlation between factor values and forward 
+The rank IC measures the Spearman correlation between factor values and forward
 stock returns, which indicates the predictive power of generated factors.
 """
 
@@ -66,7 +66,11 @@ def _load_all_operators() -> dict[str, callable]:
             exec(op["code"], op_namespace)
         except Exception as e:
             logger.warning(f"Failed to compile operator {op.get('name')}: {e}")
-    return {name: obj for name, obj in op_namespace.items() if callable(obj) and name not in ("pd", "np")}
+    return {
+        name: obj
+        for name, obj in op_namespace.items()
+        if callable(obj) and name not in ("pd", "np")
+    }
 
 
 _OPERATOR_FUNCTIONS = _load_all_operators()
@@ -76,10 +80,11 @@ _OPERATOR_FUNCTIONS = _load_all_operators()
 # Core Evaluation Utilities (from rank_ic_evaluator)
 # =============================================================================
 
+
 def load_stock_data() -> dict[str, pd.DataFrame]:
     """Load all available stock price-volume data from CSV files."""
     data = {}
-    data_files = ['Open', 'Close', 'High', 'Low', 'Volume']
+    data_files = ["Open", "Close", "High", "Low", "Volume"]
 
     for field in data_files:
         file_path = DATA_DIR / f"{field}.csv"
@@ -146,6 +151,7 @@ def compute_rank_ic(
     returns_aligned = forward_returns.loc[common_dates, common_stocks]
 
     import warnings
+
     ic_series = []
     for date in common_dates:
         factor_row = factor_aligned.loc[date].dropna()
@@ -189,7 +195,11 @@ def compute_rank_ic(
 
     ic_ir = mean_ic / ic_std if ic_std > 0 else None
     t_stat = mean_ic / (ic_std / np.sqrt(num_periods)) if ic_std > 0 else None
-    p_value = float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1))) if t_stat else None
+    p_value = (
+        float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1)))
+        if t_stat
+        else None
+    )
 
     return {
         "mean_ic": mean_ic,
@@ -211,11 +221,11 @@ def compute_rank_ic(
 
 def extract_code_from_response(code_response: str) -> str:
     """Extract Python code from markdown code blocks, falling back to raw text."""
-    code_blocks = re.findall(r'```python\n(.*?)```', code_response, re.DOTALL)
+    code_blocks = re.findall(r"```python\n(.*?)```", code_response, re.DOTALL)
     if code_blocks:
         return "\n".join(code_blocks)
 
-    code_blocks = re.findall(r'```\n(.*?)```', code_response, re.DOTALL)
+    code_blocks = re.findall(r"```\n(.*?)```", code_response, re.DOTALL)
     if code_blocks:
         return "\n".join(code_blocks)
 
@@ -298,7 +308,9 @@ def _resolve_factor_args(
     return kwargs
 
 
-def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str] | None:
+def execute_factor_code(
+    code: str, stock_data: dict[str, pd.DataFrame]
+) -> tuple[pd.DataFrame, str] | None:
     """
     Execute self-contained factor code and call its factor function(s).
 
@@ -324,22 +336,30 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple
     try:
         # Normalize "smart" Unicode quotes/dashes that some LLMs emit
         # (e.g. ' ' " " - -) which would otherwise raise SyntaxError.
-        code = code.translate(str.maketrans({
-            "\u2018": "'", "\u2019": "'",
-            "\u201c": '"', "\u201d": '"',
-            "\u2013": "-", "\u2014": "-",
-            "\u00a0": " ",
-        }))
+        code = code.translate(
+            str.maketrans(
+                {
+                    "\u2018": "'",
+                    "\u2019": "'",
+                    "\u201c": '"',
+                    "\u201d": '"',
+                    "\u2013": "-",
+                    "\u2014": "-",
+                    "\u00a0": " ",
+                }
+            )
+        )
         exec(code, namespace)
 
         # Factor functions are user-defined callables that aren't operators.
         # `__code__` filters out modules/builtins; OPERATOR_NAMES filters out
         # the operator definitions inlined at the top of the module.
         candidate_functions = [
-            (name, obj) for name, obj in namespace.items()
-            if not name.startswith('_')
+            (name, obj)
+            for name, obj in namespace.items()
+            if not name.startswith("_")
             and callable(obj)
-            and hasattr(obj, '__code__')
+            and hasattr(obj, "__code__")
             and name not in OPERATOR_NAMES
         ]
 
@@ -357,10 +377,12 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple
             except (OSError, TypeError):
                 continue
             for name in candidate_name_set:
-                if re.search(rf'\b{re.escape(name)}\s*\(', src) and name != fn.__name__:
+                if re.search(rf"\b{re.escape(name)}\s*\(", src) and name != fn.__name__:
                     helper_names.add(name)
 
-        factor_functions = [(n, f) for n, f in candidate_functions if n not in helper_names]
+        factor_functions = [
+            (n, f) for n, f in candidate_functions if n not in helper_names
+        ]
         if not factor_functions:
             factor_functions = candidate_functions
 
@@ -381,7 +403,9 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple
             try:
                 sig = inspect.signature(factor_func)
                 kwargs = _resolve_factor_args(sig, stock_data)
-                df_param_count = sum(1 for p in sig.parameters.values() if _is_dataframe_param(p))
+                df_param_count = sum(
+                    1 for p in sig.parameters.values() if _is_dataframe_param(p)
+                )
 
                 if len(kwargs) == df_param_count:
                     result = factor_func(**kwargs)
@@ -398,8 +422,10 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple
                     result = result.to_frame()
 
                 if isinstance(result, pd.DataFrame):
-                    forward_ret = stock_data['Close'].shift(-5) / stock_data['Close'] - 1
-                    valid_dates = result.dropna(how='all').index
+                    forward_ret = (
+                        stock_data["Close"].shift(-5) / stock_data["Close"] - 1
+                    )
+                    valid_dates = result.dropna(how="all").index
                     sample_ics = []
 
                     for date in valid_dates:
@@ -442,7 +468,7 @@ def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple
             ic_str = f"{best_ic:.4f}" if best_ic is not None else "N/A"
             logger.info(f"Selected best factor: {best_name} with |IC| = {ic_str}")
             return best_result, best_name
-        
+
         return None
 
     except Exception as e:
@@ -514,8 +540,8 @@ def compute_factor_returns(
 
             # Rank stocks into quantiles
             ranks = factor_row.rank(pct=True)
-            top_quintile = ranks[ranks >= (1 - 1/n_quantiles)].index
-            bottom_quintile = ranks[ranks <= 1/n_quantiles].index
+            top_quintile = ranks[ranks >= (1 - 1 / n_quantiles)].index
+            bottom_quintile = ranks[ranks <= 1 / n_quantiles].index
 
             # Get returns for next period
             next_date = rebalance_dates[i + 1]
@@ -571,7 +597,7 @@ def compute_factor_returns(
         "win_rate_pct": f"{win_rate * 100:.1f}%",
         "n_periods": len(portfolio_returns),
         "n_years": round(n_years, 2),
-        "strategy": f"Long top {100//n_quantiles}% / Short bottom {100//n_quantiles}%",
+        "strategy": f"Long top {100 // n_quantiles}% / Short bottom {100 // n_quantiles}%",
         "holding_period_days": holding_period,
     }
 
@@ -633,14 +659,18 @@ class FactorEvaluatorConfig(FunctionBaseConfig, name="factor_evaluator"):
     )
 
 
-@register_function(config_type=FactorEvaluatorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+@register_function(
+    config_type=FactorEvaluatorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN]
+)
 async def factor_evaluator_function(config: FactorEvaluatorConfig, builder: Builder):
     """
     Factor Evaluator that provides IC metrics and optimization advice.
     """
 
     # Get LLM for generating advice
-    llm = await builder.get_llm(llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await builder.get_llm(
+        llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+    )
 
     # Load stock data once
     stock_data = load_stock_data()
@@ -656,9 +686,13 @@ async def factor_evaluator_function(config: FactorEvaluatorConfig, builder: Buil
             issues.append("- Factor code execution failed or returned invalid values")
         elif abs(mean_ic) < 0.01:
             issues.append("- IC is essentially zero - factor has no predictive power")
-            issues.append("- Consider using different data combinations or lookback periods")
+            issues.append(
+                "- Consider using different data combinations or lookback periods"
+            )
         elif abs(mean_ic) < config.ic_threshold:
-            issues.append(f"- IC magnitude ({abs(mean_ic):.4f}) is below threshold ({config.ic_threshold})")
+            issues.append(
+                f"- IC magnitude ({abs(mean_ic):.4f}) is below threshold ({config.ic_threshold})"
+            )
             issues.append("- Factor shows weak signal, needs stronger alpha source")
 
         if p_value and p_value > config.p_value_threshold:
@@ -666,9 +700,13 @@ async def factor_evaluator_function(config: FactorEvaluatorConfig, builder: Buil
             issues.append("- High variance in IC - factor behavior is inconsistent")
 
         if positive_ratio < 0.4:
-            issues.append(f"- Low positive IC ratio ({positive_ratio:.1%}) - factor often gives wrong signals")
+            issues.append(
+                f"- Low positive IC ratio ({positive_ratio:.1%}) - factor often gives wrong signals"
+            )
         elif positive_ratio > 0.6 and mean_ic and mean_ic < 0:
-            issues.append("- Negative mean IC despite frequent positive periods - large losses on bad days")
+            issues.append(
+                "- Negative mean IC despite frequent positive periods - large losses on bad days"
+            )
 
         return "\n".join(issues) if issues else "- No specific issues identified"
 
@@ -688,7 +726,9 @@ async def factor_evaluator_function(config: FactorEvaluatorConfig, builder: Buil
 
         return True
 
-    async def generate_optimization_advice(factor_code: str, ic_results: dict[str, Any]) -> str:
+    async def generate_optimization_advice(
+        factor_code: str, ic_results: dict[str, Any]
+    ) -> str:
         """Generate optimization advice based on IC results."""
         from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -737,7 +777,7 @@ Provide specific optimization advice (3-5 bullet points):"""
             HumanMessage(content=user_prompt),
         ]
         response = await llm.ainvoke(messages)
-        return response.content if hasattr(response, 'content') else str(response)
+        return response.content if hasattr(response, "content") else str(response)
 
     async def evaluate_factor(factor_code: str) -> str:
         """
@@ -760,10 +800,13 @@ Provide specific optimization advice (3-5 bullet points):"""
             - saved_path: Path to saved results (if accepted)
         """
         if not stock_data:
-            return json.dumps({
-                "status": "error",
-                "error": "No stock data available",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error": "No stock data available",
+                },
+                indent=2,
+            )
 
         # Extract and execute factor code
         clean_code = extract_code_from_response(factor_code)
@@ -776,53 +819,69 @@ Provide specific optimization advice (3-5 bullet points):"""
                 "2. All operators are correctly used\n"
                 "3. The function returns a pandas DataFrame"
             )
-            return json.dumps({
-                "status": "needs_improvement",
-                "error": "Failed to execute factor code",
-                "optimization_advice": advice,
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "needs_improvement",
+                    "error": "Failed to execute factor code",
+                    "optimization_advice": advice,
+                },
+                indent=2,
+            )
 
         factor_values, selected_factor = exec_result
 
         # Compute forward returns and rank IC
-        close_data = stock_data.get('Close')
-        forward_returns = compute_forward_returns(close_data, periods=config.forward_periods)
+        close_data = stock_data.get("Close")
+        forward_returns = compute_forward_returns(
+            close_data, periods=config.forward_periods
+        )
         ic_results = compute_rank_ic(factor_values, forward_returns)
 
         if ic_results.get("error"):
-            return json.dumps({
-                "status": "needs_improvement",
-                "error": ic_results["error"],
-                "optimization_advice": "Unable to compute IC. Check factor output validity.",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "needs_improvement",
+                    "error": ic_results["error"],
+                    "optimization_advice": "Unable to compute IC. Check factor output validity.",
+                },
+                indent=2,
+            )
 
         # Check if factor is acceptable
         if is_factor_acceptable(ic_results):
             logger.info("Factor ACCEPTED!")
             mean_ic = ic_results.get("mean_ic", 0)
-            logger.info(f"Mean IC: {mean_ic:.4f}, p-value: {ic_results.get('p_value', 'N/A')}")
+            logger.info(
+                f"Mean IC: {mean_ic:.4f}, p-value: {ic_results.get('p_value', 'N/A')}"
+            )
 
             saved_path = None
             if config.save_on_accept:
                 saved_path = save_factor_results(factor_code, ic_results)
 
-            return json.dumps({
-                "status": "accepted",
-                "selected_factor": selected_factor,
-                "evaluation_metrics": ic_results,
-                "saved_path": saved_path,
-                "message": f"Factor accepted with IC={mean_ic:.4f}",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "accepted",
+                    "selected_factor": selected_factor,
+                    "evaluation_metrics": ic_results,
+                    "saved_path": saved_path,
+                    "message": f"Factor accepted with IC={mean_ic:.4f}",
+                },
+                indent=2,
+            )
 
         # Factor needs improvement - generate advice
         logger.info("Factor needs improvement. Generating optimization advice...")
         advice = await generate_optimization_advice(factor_code, ic_results)
 
-        return json.dumps({
-            "status": "needs_improvement",
-            "evaluation_metrics": ic_results,
-            "optimization_advice": advice,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "needs_improvement",
+                "evaluation_metrics": ic_results,
+                "optimization_advice": advice,
+            },
+            indent=2,
+        )
 
     yield FunctionInfo.from_fn(
         evaluate_factor,
@@ -870,8 +929,13 @@ class FactorLoopExecutorConfig(FunctionBaseConfig, name="factor_loop_executor"):
     )
 
 
-@register_function(config_type=FactorLoopExecutorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def factor_loop_executor_function(config: FactorLoopExecutorConfig, builder: Builder):
+@register_function(
+    config_type=FactorLoopExecutorConfig,
+    framework_wrappers=[LLMFrameworkEnum.LANGCHAIN],
+)
+async def factor_loop_executor_function(
+    config: FactorLoopExecutorConfig, builder: Builder
+):
     """
     Factor Loop Executor that runs sequential steps with feedback.
     """
@@ -886,23 +950,29 @@ async def factor_loop_executor_function(config: FactorLoopExecutorConfig, builde
     )
 
     # Get LLM
-    llm = await builder.get_llm(llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await builder.get_llm(
+        llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+    )
 
     # Load resources
     operators = load_calculator_operators()
     operators_list = format_operators_for_prompt(operators)
-    output_format = get_output_format_prompt().replace("{num_factors}", str(config.num_factors))
+    output_format = get_output_format_prompt().replace(
+        "{num_factors}", str(config.num_factors)
+    )
     stock_data = load_stock_data()
     code_map = get_operator_code_map(operators)
 
     # ===== Step 1: Factor Generator =====
-    async def step1_generate_factors(request: str, optimization_history: list[dict] | None = None) -> str:
+    async def step1_generate_factors(
+        request: str, optimization_history: list[dict] | None = None
+    ) -> str:
         """Generate factor descriptions, incorporating recent previous advice."""
         advice_section = ""
         if optimization_history and len(optimization_history) > 0:
             # Limit to last N entries based on config.history_length (0 = all)
             if config.history_length > 0:
-                recent_history = optimization_history[-config.history_length:]
+                recent_history = optimization_history[-config.history_length :]
             else:
                 recent_history = optimization_history
 
@@ -921,7 +991,11 @@ async def factor_loop_executor_function(config: FactorLoopExecutorConfig, builde
             all_advice = "\n".join(history_parts)
             shown_count = len(recent_history)
             total_count = len(optimization_history)
-            history_note = f"Showing last {shown_count} of {total_count} attempts." if shown_count < total_count else ""
+            history_note = (
+                f"Showing last {shown_count} of {total_count} attempts."
+                if shown_count < total_count
+                else ""
+            )
 
             advice_section = f"""
 
@@ -967,7 +1041,7 @@ CRITICAL RULES - READ CAREFULLY:
 Generate {config.num_factors} factors now:"""
 
         response = await llm.ainvoke(prompt)
-        return response.content if hasattr(response, 'content') else str(response)
+        return response.content if hasattr(response, "content") else str(response)
 
     # ===== Step 2: Code Generator =====
     async def step2_generate_code(factor_json: str) -> str:
@@ -982,8 +1056,8 @@ Generate {config.num_factors} factors now:"""
             data = json.loads(factor_json)
             if isinstance(data, list):
                 for factor in data:
-                    if 'operators_used' in factor:
-                        required_ops.update(factor['operators_used'])
+                    if "operators_used" in factor:
+                        required_ops.update(factor["operators_used"])
         except json.JSONDecodeError:
             pass
 
@@ -1006,7 +1080,7 @@ def factor_name(Open: pd.DataFrame, Close: pd.DataFrame, ...) -> pd.DataFrame:
 
 {factor_json}
 
-AVAILABLE OPERATORS: {', '.join(sorted(valid_ops))}
+AVAILABLE OPERATORS: {", ".join(sorted(valid_ops))}
 
 Generate ONLY the factor function:"""
 
@@ -1016,24 +1090,30 @@ Generate ONLY the factor function:"""
             HumanMessage(content=user_prompt),
         ]
         response = await llm.ainvoke(messages)
-        factor_function_code = response.content if hasattr(response, 'content') else str(response)
+        factor_function_code = (
+            response.content if hasattr(response, "content") else str(response)
+        )
 
         # Extract from markdown
-        code_blocks = re.findall(r'```python\n(.*?)```', factor_function_code, re.DOTALL)
+        code_blocks = re.findall(
+            r"```python\n(.*?)```", factor_function_code, re.DOTALL
+        )
         if code_blocks:
             factor_function_code = code_blocks[0]
 
         # Build complete code
-        return "\n".join([
-            "import pandas as pd",
-            "import numpy as np",
-            "",
-            "# Operator functions",
-            operator_code_block,
-            "",
-            "# Factor function",
-            factor_function_code,
-        ])
+        return "\n".join(
+            [
+                "import pandas as pd",
+                "import numpy as np",
+                "",
+                "# Operator functions",
+                operator_code_block,
+                "",
+                "# Factor function",
+                factor_function_code,
+            ]
+        )
 
     # ===== Step 3: Evaluate =====
     def step3_evaluate(factor_code: str) -> dict:
@@ -1053,8 +1133,10 @@ Generate ONLY the factor function:"""
 
         factor_values, selected_factor = exec_result
 
-        close_data = stock_data.get('Close')
-        forward_returns = compute_forward_returns(close_data, periods=config.forward_periods)
+        close_data = stock_data.get("Close")
+        forward_returns = compute_forward_returns(
+            close_data, periods=config.forward_periods
+        )
         ic_results = compute_rank_ic(factor_values, forward_returns)
 
         mean_ic = ic_results.get("mean_ic")
@@ -1111,7 +1193,7 @@ FACTOR CODE:
 Provide 3-5 specific improvements:"""
 
         response = await llm.ainvoke(prompt)
-        return response.content if hasattr(response, 'content') else str(response)
+        return response.content if hasattr(response, "content") else str(response)
 
     # ===== Backtest Helper =====
     def compute_backtest_for_code(factor_code: str) -> dict[str, Any] | None:
@@ -1127,11 +1209,13 @@ Provide 3-5 specific improvements:"""
 
         factor_values, _ = exec_result
 
-        close_data = stock_data.get('Close')
+        close_data = stock_data.get("Close")
         if close_data is None:
             return {"error": "Close price data not available"}
 
-        forward_returns = compute_forward_returns(close_data, periods=config.forward_periods)
+        forward_returns = compute_forward_returns(
+            close_data, periods=config.forward_periods
+        )
 
         return compute_factor_returns(
             factor_values,
@@ -1164,8 +1248,12 @@ Provide 3-5 specific improvements:"""
             # Step 1: Generate factors (with ALL accumulated advice)
             logger.info("Step 1: Generating factor descriptions...")
             if optimization_history:
-                logger.info(f"Passing {len(optimization_history)} previous attempts as context")
-            factor_json = await step1_generate_factors(request, optimization_history if optimization_history else None)
+                logger.info(
+                    f"Passing {len(optimization_history)} previous attempts as context"
+                )
+            factor_json = await step1_generate_factors(
+                request, optimization_history if optimization_history else None
+            )
 
             # Step 2: Generate code
             logger.info("Step 2: Generating factor code...")
@@ -1186,7 +1274,9 @@ Provide 3-5 specific improvements:"""
                         "factor_code": factor_code,
                         "eval_results": eval_results,
                     }
-                    logger.info(f"Updated best result: IC={mean_ic:.4f} from iteration {iteration}")
+                    logger.info(
+                        f"Updated best result: IC={mean_ic:.4f} from iteration {iteration}"
+                    )
 
             # Check if accepted
             if eval_results["status"] == "accepted":
@@ -1196,37 +1286,49 @@ Provide 3-5 specific improvements:"""
                 logger.info("Computing backtest performance...")
                 backtest_results = compute_backtest_for_code(factor_code)
 
-                if backtest_results and backtest_results.get("annual_return") is not None:
+                if (
+                    backtest_results
+                    and backtest_results.get("annual_return") is not None
+                ):
                     annual_ret = backtest_results["annual_return_pct"]
                     sharpe = backtest_results["sharpe_ratio"]
-                    logger.info(f"Backtest: Annual Return={annual_ret}, Sharpe={sharpe:.2f}")
+                    logger.info(
+                        f"Backtest: Annual Return={annual_ret}, Sharpe={sharpe:.2f}"
+                    )
 
                 saved_path = save_factor_results(
                     factor_code, eval_results["ic_results"], backtest_results
                 )
 
-                return json.dumps({
-                    "status": "accepted",
-                    "iterations": iteration,
-                    "selected_factor": eval_results.get("selected_factor"),
-                    "factor_code": factor_code,
-                    "evaluation_metrics": eval_results["ic_results"],
-                    "backtest_performance": backtest_results,
-                    "saved_path": saved_path,
-                    "optimization_history_length": len(optimization_history),
-                    "message": f"Factor accepted at iteration {iteration} with IC={mean_ic:.4f}",
-                }, indent=2)
+                return json.dumps(
+                    {
+                        "status": "accepted",
+                        "iterations": iteration,
+                        "selected_factor": eval_results.get("selected_factor"),
+                        "factor_code": factor_code,
+                        "evaluation_metrics": eval_results["ic_results"],
+                        "backtest_performance": backtest_results,
+                        "saved_path": saved_path,
+                        "optimization_history_length": len(optimization_history),
+                        "message": f"Factor accepted at iteration {iteration} with IC={mean_ic:.4f}",
+                    },
+                    indent=2,
+                )
 
             # Generate advice and ADD to history (accumulate all)
             logger.info("Generating optimization advice...")
             advice = await generate_advice(factor_code, eval_results)
-            optimization_history.append({
-                "iteration": iteration,
-                "mean_ic": mean_ic,
-                "p_value": eval_results.get("p_value"),
-                "advice": advice,
-            })
-            logger.info(f"Advice added to history. Total attempts: {len(optimization_history)}")
+            optimization_history.append(
+                {
+                    "iteration": iteration,
+                    "mean_ic": mean_ic,
+                    "p_value": eval_results.get("p_value"),
+                    "advice": advice,
+                }
+            )
+            logger.info(
+                f"Advice added to history. Total attempts: {len(optimization_history)}"
+            )
 
         # Return best result after max iterations
         logger.info("Max iterations reached. Returning best result.")
@@ -1239,29 +1341,41 @@ Provide 3-5 specific improvements:"""
             if backtest_results and backtest_results.get("annual_return") is not None:
                 annual_ret = backtest_results["annual_return_pct"]
                 sharpe = backtest_results["sharpe_ratio"]
-                logger.info(f"Backtest: Annual Return={annual_ret}, Sharpe={sharpe:.2f}")
+                logger.info(
+                    f"Backtest: Annual Return={annual_ret}, Sharpe={sharpe:.2f}"
+                )
 
             saved_path = save_factor_results(
                 best_result["factor_code"],
                 best_result["eval_results"].get("ic_results", {}),
                 backtest_results,
             )
-            return json.dumps({
-                "status": "best_effort",
-                "iterations": config.max_iterations,
-                "selected_factor": best_result["eval_results"].get("selected_factor"),
-                "factor_code": best_result["factor_code"],
-                "evaluation_metrics": best_result["eval_results"].get("ic_results", {}),
-                "backtest_performance": backtest_results,
-                "saved_path": saved_path,
-                "message": f"Best factor from iteration {best_result['iteration']} with IC={best_ic:.4f}",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "best_effort",
+                    "iterations": config.max_iterations,
+                    "selected_factor": best_result["eval_results"].get(
+                        "selected_factor"
+                    ),
+                    "factor_code": best_result["factor_code"],
+                    "evaluation_metrics": best_result["eval_results"].get(
+                        "ic_results", {}
+                    ),
+                    "backtest_performance": backtest_results,
+                    "saved_path": saved_path,
+                    "message": f"Best factor from iteration {best_result['iteration']} with IC={best_ic:.4f}",
+                },
+                indent=2,
+            )
 
-        return json.dumps({
-            "status": "failed",
-            "iterations": config.max_iterations,
-            "message": "No valid factors generated",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "failed",
+                "iterations": config.max_iterations,
+                "message": "No valid factors generated",
+            },
+            indent=2,
+        )
 
     yield FunctionInfo.from_fn(
         run_factor_loop,
