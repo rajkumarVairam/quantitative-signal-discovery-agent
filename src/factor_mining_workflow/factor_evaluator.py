@@ -36,14 +36,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from pydantic import Field
-from scipy import stats
-
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import Field
+from scipy import stats
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +396,7 @@ def execute_factor_code(
         best_name = None
 
         import warnings
+
         from scipy import stats as sp_stats
 
         for func_name, factor_func in factor_functions:
@@ -939,14 +939,14 @@ async def factor_loop_executor_function(
     """
     Factor Loop Executor that runs sequential steps with feedback.
     """
+    from .factor_code_generator import (
+        extract_operators_from_json,
+        get_operator_code_map,
+    )
     from .factor_generator import (
-        load_calculator_operators,
         format_operators_for_prompt,
         get_output_format_prompt,
-    )
-    from .factor_code_generator import (
-        get_operator_code_map,
-        extract_operators_from_json,
+        load_calculator_operators,
     )
 
     # Get LLM

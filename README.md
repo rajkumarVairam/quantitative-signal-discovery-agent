@@ -128,7 +128,7 @@ uv run nat run --config_file configs/config-optimization.yml --input "volume pri
 | Component | Description |
 |-----------|-------------|
 | **Factor Agent** | Uses an LLM to generate factor expressions based on price-volume data and operators |
-| **Code Agent** | Converts factor expressions into executable Python code using the `Get_calculator` tool |
+| **Code Agent** | Wraps each factor formula in a Python function via an LLM, and inlines the required operator implementations from `calculator.json` to produce a self-contained executable module |
 | **Eval Agent** | Performs backtesting via Rank IC and generates optimization suggestions |
 | **Data Download Script** | Fetches S&P 500 price-volume data from Yahoo Finance via `yfinance` |
 
@@ -163,6 +163,78 @@ The workflow uses two key metrics to decide whether to accept or reject a genera
 
 A factor is accepted when both criteria are met. Otherwise, the Eval Agent generates optimization suggestions and the workflow retries.
 
+## Workflow Result Format
+
+Each run returns a structured JSON result containing the outcome, metrics, the factors that were tried, and (if the loop did not accept on the first iteration) the optimization advice produced for the next attempt. Example:
+
+```json
+{
+  "status": "best_effort",
+  "headline": "Best-effort result (IC threshold not met)",
+  "request": "momentum factors",
+  "iteration": 2,
+  "total_iterations": 3,
+  "selected_factor": "factor_volume_decayed_momentum",
+  "thresholds": {
+    "ic_threshold": 0.02,
+    "p_value_threshold": 0.05
+  },
+  "metrics": {
+    "mean_ic": 0.0103,
+    "ic_std": 0.21,
+    "ic_ir": 0.049,
+    "t_stat": 2.91,
+    "p_value": 0.0036,
+    "num_periods": 3494,
+    "positive_ic_ratio": 0.529
+  },
+  "factors": [
+    {
+      "name": "Volume-Decayed Momentum",
+      "formula": "Mul(TS_Return(Close, 20), Decay_Linear(Volume, 20))",
+      "category": "momentum",
+      "data_fields_used": ["Close", "Volume"],
+      "lookback_periods": [20]
+    }
+  ],
+  "saved_path": "src/factor_mining_workflow/output/factor_xxx.json",
+  "last_feedback": "- Try TS_Std instead of TS_Var for cleaner volatility signal\n- Use 60-day lookback instead of 20\n- Replace Volume with Close*Volume for dollar-volume weighting"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `"accepted"`, `"best_effort"`, or `"failed"` |
+| `headline` | Human-readable summary |
+| `iteration` / `total_iterations` | Which iteration produced this result, out of the max allowed |
+| `selected_factor` | Python function name of the factor whose IC was reported (the evaluator picks the best when multiple factors are returned) |
+| `metrics` | All non-null IC statistics |
+| `factors` | Compact summary of every factor that was generated |
+| `saved_path` | Where the full factor JSON + code was persisted |
+| `last_feedback` | Optimization advice from the last failed iteration; pass it back to resume the loop |
+
+### Resuming an Optimization Loop
+
+`run_optimization` accepts an optional `seed_feedback` argument. Pass the `last_feedback` from a prior result to start a new run with the previous advice already applied — useful when you want more iterations than `max_iterations` allows, or want to switch models mid-run.
+
+```python
+import json
+from nat.runtime.runner import Runner
+
+# First run — best effort, did not converge
+result1 = json.loads(await runner.ainvoke("momentum factors"))
+
+# Resume from the last feedback
+result2 = json.loads(
+    await runner.ainvoke(
+        "momentum factors",
+        seed_feedback=result1["last_feedback"],
+    )
+)
+```
+
+Or persist the `last_feedback` field to disk and re-load it later — there's no in-memory state required to resume.
+
 ## Project Structure
 
 ```
@@ -180,14 +252,15 @@ quant-factor-mining-agent/
         ├── __init__.py
         ├── data/sp500/           # S&P 500 price-volume data
         ├── download_data.py      # Script to fetch data via yfinance
-        ├── factor_code_generator.py
-        ├── factor_evaluator.py
-        ├── factor_generator.py
-        ├── factor_mining_optimization_workflow.py
-        ├── register.py
+        ├── factor_generator.py   # Factor agent: generates JSON factor descriptions
+        ├── factor_code_generator.py  # Code agent: turns JSON into executable Python
+        ├── factor_evaluator.py   # Eval agent: runs factor code, computes Rank IC
+        ├── factor_mining_optimization_workflow.py  # Orchestrator (closed-loop)
+        ├── llm_utils.py          # Shared LLM-output helpers (parse, sanitize, normalize)
+        ├── register.py           # NAT function registration
         └── template/
-            ├── calculator.json
-            └── factor_output_template.json
+            ├── calculator.json   # Operator catalogue (name, signature, code)
+            └── factor_output_template.json  # JSON schema the factor agent fills in
 ```
 
 ## Additional Resources

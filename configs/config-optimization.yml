@@ -13,15 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Factor Mining Workflow
-# Iteratively generates and optimizes quantitative factors:
-# 1. Generate factor descriptions using LLM
-# 2. Convert to executable Python code
-# 3. Evaluate rank IC against forward returns
-# 4. Accept if IC meets threshold, otherwise retry with feedback
+# Factor Mining Workflow: generate -> code -> evaluate -> feedback loop.
+# Run `phoenix serve` in a separate terminal to view traces at localhost:6006.
 
-# Global settings with Phoenix tracing
-# Run `phoenix serve` in a separate terminal before running the workflow
 general:
   telemetry:
     tracing:
@@ -31,44 +25,35 @@ general:
         project: factor-mining-workflow
 
 llms:
-  # Factor Generator: Reasoning model for generating factor ideas.
-  # Reasoning is left ON because ideation benefits from chain-of-thought,
-  # and the JSON answer appears after the reasoning trace in `.content`.
-  # max_tokens must be generous (reasoning + answer can exceed 4k tokens).
   factor_generator:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
     base_url: "https://integrate.api.nvidia.com/v1/"
-    temperature: 0.8          # Higher temperature for creativity
-    max_tokens: 6000
+    temperature: 0.8
+    max_tokens: 3000
 
-  # Code Generator: Smaller, faster model. Prompt is highly constrained
-  # (one-shot example, only used operator signatures, low temperature) so
-  # this is cheap and fast.
   code_generator:
     _type: nim
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
     base_url: "https://integrate.api.nvidia.com/v1/"
-    temperature: 0.0          # Deterministic translation
+    temperature: 0.0
     max_tokens: 1000
 
-  # Optimization Advisor: Smaller, faster model for short feedback
   optimization_advisor:
     _type: nim
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
     base_url: "https://integrate.api.nvidia.com/v1/"
-    temperature: 0.5          # Balanced for analysis
-    max_tokens: 1500
+    temperature: 0.5
+    max_tokens: 1000
 
 workflow:
   _type: factor_optimizer
-  factor_generator_llm: factor_generator          # LLM for generating factor ideas
-  code_generator_llm: code_generator              # LLM for translating formulas to Python
-  optimization_advisor_llm: optimization_advisor  # LLM for feedback/optimization
-  ic_threshold: 0.02        # Minimum |IC| to accept
-  p_value_threshold: 0.05   # Maximum p-value for significance
-  max_iterations: 2         # Optimization attempts
-  num_factors: 2            # Factors per iteration
-  forward_periods: 5        # Days for forward returns
-  save_results: true        # Save results to disk
-  use_colors: true          # ANSI colors in output
+  factor_generator_llm: factor_generator
+  code_generator_llm: code_generator
+  optimization_advisor_llm: optimization_advisor
+  ic_threshold: 0.02
+  p_value_threshold: 0.05
+  max_iterations: 2
+  num_factors: 2
+  forward_periods: 5
+  save_results: true

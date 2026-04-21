@@ -32,13 +32,12 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import Field
 
 from .factor_code_generator import generate_factor_code
 from .factor_evaluator import (
@@ -49,11 +48,85 @@ from .factor_evaluator import (
     load_stock_data,
 )
 from .factor_generator import generate_factor_json, load_calculator_operators
-from .llm_utils import extract_response_text
+from .llm_utils import NO_THINK_INSTRUCTION, extract_response_text
 
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(__file__).parent / "output"
+
+
+_STATUS_HEADLINE = {
+    "accepted": "Factor accepted",
+    "best_effort": "Best-effort result (IC threshold not met)",
+    "failed": "No valid factors generated",
+}
+
+
+def _format_workflow_result(
+    status: str,
+    request: str,
+    iteration: int,
+    total_iterations: int,
+    factor_json: str,
+    ic_results: dict,
+    saved_path: str | None,
+    config,
+    last_feedback: str | None = None,
+) -> str:
+    """Format the workflow's final result as a structured, human-readable JSON string.
+
+    ``last_feedback`` is the optimization advice from the most recent failed
+    iteration. Including it in the result lets a caller resume the loop later
+    by passing it back in as the seed feedback for a new run.
+    """
+    factors_summary = []
+    try:
+        data = json.loads(factor_json) if factor_json else []
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            factors_summary.append(
+                {
+                    "name": item.get("name"),
+                    "formula": item.get("formula"),
+                    "category": item.get("category"),
+                    "data_fields_used": item.get("data_fields_used"),
+                    "lookback_periods": item.get("lookback_periods"),
+                }
+            )
+    except json.JSONDecodeError:
+        pass
+
+    metrics = {
+        k: ic_results.get(k)
+        for k in ("mean_ic", "ic_std", "ic_ir", "t_stat", "p_value", "num_periods", "positive_ic_ratio")
+        if ic_results.get(k) is not None
+    }
+
+    payload = {
+        "status": status,
+        "headline": _STATUS_HEADLINE.get(status, status),
+        "request": request,
+        "iteration": iteration,
+        "total_iterations": total_iterations,
+        "selected_factor": ic_results.get("selected_factor"),
+        "thresholds": {
+            "ic_threshold": config.ic_threshold,
+            "p_value_threshold": config.p_value_threshold,
+        },
+        "metrics": metrics,
+        "factors": factors_summary,
+        "saved_path": saved_path,
+    }
+
+    if ic_results.get("error"):
+        payload["error"] = ic_results["error"]
+
+    if last_feedback:
+        payload["last_feedback"] = last_feedback
+
+    return json.dumps(payload, indent=2, default=str)
 
 
 # =============================================================================
@@ -162,37 +235,66 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
         return True
 
     async def generate_feedback(factor_json: str, ic_results: dict, iteration: int) -> str:
-        """Ask the advisor LLM for optimization advice for the next iteration."""
+        """
+        Ask the advisor LLM for compact, actionable feedback.
+
+        The full factor JSON is sent so the advisor sees every field
+        (name, formula, meaning, category, lookbacks). Output is constrained
+        to a few short bullets so it fits comfortably in the next iteration's
+        factor-generator prompt.
+        """
         mean_ic = ic_results.get("mean_ic")
         p_value = ic_results.get("p_value")
         mean_ic_str = f"{mean_ic:.4f}" if mean_ic is not None else "N/A"
         p_value_str = f"{p_value:.4f}" if p_value is not None else "N/A"
         error = ic_results.get("error", "")
+        error_line = f"- Error: {error}\n" if error else ""
 
-        prompt = f"""Factor evaluation (iteration {iteration}):
-- Mean IC: {mean_ic_str} (need >= {config.ic_threshold})
-- P-value: {p_value_str} (need <= {config.p_value_threshold})
-{f"- Error: {error}" if error else ""}
+        prompt = f"""Iteration {iteration} results:
+- Mean IC: {mean_ic_str} (target >= {config.ic_threshold})
+- P-value: {p_value_str} (target <= {config.p_value_threshold})
+{error_line}
+FACTORS TRIED:
+{factor_json}
 
-FACTOR: {factor_json[:500]}
-
-Provide 3-5 specific improvements:"""
+Output exactly 3 bullet points, max 15 words each, suggesting concrete
+changes (different operator, different lookback, different data field).
+No prose, no preamble. Format:
+- <change 1>
+- <change 2>
+- <change 3>"""
 
         response = await advisor_llm.ainvoke(
             [
-                SystemMessage(content="You are a senior quant providing factor optimization advice."),
+                SystemMessage(content=NO_THINK_INSTRUCTION),
+                SystemMessage(content="You are a senior quant providing concise factor optimization advice."),
                 HumanMessage(content=prompt),
             ]
         )
-        return extract_response_text(response)
+        feedback = extract_response_text(response).strip()
+        # Hard cap so a chatty model can't blow up the next iteration's prompt.
+        if len(feedback) > 500:
+            feedback = feedback[:500].rsplit("\n", 1)[0]
+        return feedback
 
     # ---- main optimization loop ----
 
-    async def run_optimization(request: str) -> str:
-        """Run the closed-loop factor mining optimization."""
+    async def run_optimization(request: str, seed_feedback: str | None = None) -> str:
+        """
+        Run the closed-loop factor mining optimization.
+
+        Args:
+            request: What kind of factors to generate (e.g., "momentum factors").
+            seed_feedback: Optimization advice from a previous run to start with.
+                           Pass the ``last_feedback`` field from a prior result
+                           to resume an optimization loop where it left off.
+        """
         best_result: dict | None = None
         best_ic: float | None = None
-        feedback: str | None = None
+        feedback: str | None = seed_feedback
+
+        if seed_feedback:
+            logger.info(f"Resuming with seed feedback ({len(seed_feedback)} chars)")
 
         for iteration in range(1, config.max_iterations + 1):
             logger.info(f"=== Iteration {iteration}/{config.max_iterations} ===")
@@ -227,15 +329,16 @@ Provide 3-5 specific improvements:"""
                     if config.save_results
                     else None
                 )
-                return json.dumps(
-                    {
-                        "status": "accepted",
-                        "iteration": iteration,
-                        "mean_ic": mean_ic,
-                        "p_value": ic_results.get("p_value"),
-                        "saved_path": saved_path,
-                    },
-                    indent=2,
+                return _format_workflow_result(
+                    status="accepted",
+                    request=request,
+                    iteration=iteration,
+                    total_iterations=config.max_iterations,
+                    factor_json=factor_json,
+                    ic_results=ic_results,
+                    saved_path=saved_path,
+                    config=config,
+                    last_feedback=feedback,
                 )
 
             logger.info("Generating optimization feedback...")
@@ -252,17 +355,29 @@ Provide 3-5 specific improvements:"""
                 if config.save_results
                 else None
             )
-            return json.dumps(
-                {
-                    "status": "best_effort",
-                    "iteration": best_result["iteration"],
-                    "mean_ic": best_ic,
-                    "saved_path": saved_path,
-                },
-                indent=2,
+            return _format_workflow_result(
+                status="best_effort",
+                request=request,
+                iteration=best_result["iteration"],
+                total_iterations=config.max_iterations,
+                factor_json=best_result["factor_json"],
+                ic_results=best_result["ic_results"],
+                saved_path=saved_path,
+                config=config,
+                last_feedback=feedback,
             )
 
-        return json.dumps({"status": "failed", "iterations": config.max_iterations}, indent=2)
+        return _format_workflow_result(
+            status="failed",
+            request=request,
+            iteration=0,
+            total_iterations=config.max_iterations,
+            factor_json="",
+            ic_results={},
+            saved_path=None,
+            config=config,
+            last_feedback=feedback,
+        )
 
     yield FunctionInfo.from_fn(
         run_optimization,

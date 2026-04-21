@@ -21,8 +21,11 @@ requires = ["setuptools >= 64", "setuptools-scm>=8"]
 name = "factor_mining_workflow"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[langchain]~=1.3",
-  "nvidia-nat-phoenix",
+  # Pin both NAT packages to the same compatible release line. Mixing different
+  # minor versions of nvidia-nat-* causes ImportErrors like
+  # "cannot import name 'register_dataset_loader' from 'nat.cli.register_workflow'".
+  "nvidia-nat[langchain]==1.4.*",
+  "nvidia-nat-phoenix==1.4.*",
   "pandas",
   "numpy",
   "scipy",
@@ -44,3 +47,19 @@ factor_mining_workflow = "factor_mining_workflow.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Pyflakes (F) catches real bugs; pycodestyle errors (E) are basic syntax issues.
+# `extend-select` would add more, but we keep the surface narrow for CI noise control.
+select = ["E", "F", "W", "I"]
+ignore = [
+  "E501",  # line too long — formatter's job, not lint
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use module-level fixtures and re-import freely.
+"tests/*" = ["F401"]

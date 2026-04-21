@@ -30,16 +30,15 @@ import logging
 import re
 from pathlib import Path
 
-from langchain_core.messages import HumanMessage
-from pydantic import Field
-
+from langchain_core.messages import HumanMessage, SystemMessage
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import Field
 
-from .llm_utils import extract_response_text
+from .llm_utils import NO_THINK_INSTRUCTION, extract_response_text
 
 logger = logging.getLogger(__name__)
 
@@ -190,15 +189,22 @@ async def generate_factor_json(
         build_factor_example(template),
     )
 
-    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    # Disable Nemotron's chain-of-thought trace so the entire token budget
+    # goes toward producing the JSON answer (not reasoning prose). Without
+    # this, small-context responses can be truncated mid-formula.
+    response = await llm.ainvoke(
+        [
+            SystemMessage(content=NO_THINK_INSTRUCTION),
+            HumanMessage(content=prompt),
+        ]
+    )
     content = extract_response_text(response)
 
     if not content.strip():
         extras = list((getattr(response, "additional_kwargs", {}) or {}).keys())
         logger.warning(
-            "Factor generator returned empty .content. The model likely ran out "
-            "of tokens during the reasoning phase. Increase max_tokens for the "
-            f"factor_generator LLM. additional_kwargs={extras}"
+            "Factor generator returned empty .content. Increase max_tokens "
+            f"for the factor_generator LLM. additional_kwargs={extras}"
         )
 
     logger.debug(f"Factor generator output: {len(content)} chars")
