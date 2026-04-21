@@ -17,17 +17,11 @@
 
 """Factor Mining Workflow - NAT Function Registration."""
 
-# Factor generation
-from .factor_generator import factor_generator_function
-from .factor_generator import factor_validator_function
-from .factor_generator import list_operators_function
-
-# Code generation
+from .factor_generator import (
+    factor_generator_function,
+    factor_validator_function,
+    list_operators_function,
+)
 from .factor_code_generator import factor_code_generator_function
-
-# Factor evaluation
-from .factor_evaluator import factor_evaluator_function
-from .factor_evaluator import factor_loop_executor_function
-
-# Main optimization workflow (orchestrator)
+from .factor_evaluator import factor_evaluator_function, factor_loop_executor_function
 from .factor_mining_optimization_workflow import factor_optimizer_function

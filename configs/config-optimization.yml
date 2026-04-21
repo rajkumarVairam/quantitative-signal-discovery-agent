@@ -31,35 +31,39 @@ general:
         project: factor-mining-workflow
 
 llms:
-  # Factor Generator: Creative model for generating factor ideas
+  # Factor Generator: Reasoning model for generating factor ideas.
+  # Reasoning is left ON because ideation benefits from chain-of-thought,
+  # and the JSON answer appears after the reasoning trace in `.content`.
+  # max_tokens must be generous (reasoning + answer can exceed 4k tokens).
   factor_generator:
     _type: nim
     model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
     base_url: "https://integrate.api.nvidia.com/v1/"
     temperature: 0.8          # Higher temperature for creativity
-    max_tokens: 4096
+    max_tokens: 6000
 
-  # Code Generator: Precise model for generating executable code
+  # Code Generator: Smaller, faster model. Prompt is highly constrained
+  # (one-shot example, only used operator signatures, low temperature) so
+  # this is cheap and fast.
   code_generator:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
     base_url: "https://integrate.api.nvidia.com/v1/"
-    temperature: 0.3          # Lower temperature for precision
-    max_tokens: 4096
+    temperature: 0.0          # Deterministic translation
+    max_tokens: 1000
 
-  # Optimization Advisor: Analytical model for providing feedback
+  # Optimization Advisor: Smaller, faster model for short feedback
   optimization_advisor:
     _type: nim
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
     base_url: "https://integrate.api.nvidia.com/v1/"
     temperature: 0.5          # Balanced for analysis
-    max_tokens: 2048
+    max_tokens: 1500
 
 workflow:
   _type: factor_optimizer
-  # Specify different LLMs for each agent
-  factor_generator_llm: factor_generator      # LLM for generating factor ideas
-  code_generator_llm: code_generator          # LLM for converting to Python code
+  factor_generator_llm: factor_generator          # LLM for generating factor ideas
+  code_generator_llm: code_generator              # LLM for translating formulas to Python
   optimization_advisor_llm: optimization_advisor  # LLM for feedback/optimization
   ic_threshold: 0.02        # Minimum |IC| to accept
   p_value_threshold: 0.05   # Maximum p-value for significance

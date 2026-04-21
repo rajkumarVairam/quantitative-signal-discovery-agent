@@ -25,6 +25,7 @@ The rank IC measures the Spearman correlation between factor values and forward
 stock returns, which indicates the predictive power of generated factors.
 """
 
+import inspect
 import json
 import logging
 import re
@@ -48,6 +49,27 @@ logger = logging.getLogger(__name__)
 
 # Path to data directory
 DATA_DIR = Path(__file__).parent / "data" / "sp500"
+
+# Path to operator definitions
+CALCULATOR_PATH = Path(__file__).parent / "template" / "calculator.json"
+
+
+def _load_all_operators() -> dict[str, callable]:
+    """Load and compile all operator functions from calculator.json into a callable dict."""
+    if not CALCULATOR_PATH.exists():
+        return {}
+    with open(CALCULATOR_PATH, "r") as f:
+        operators = json.load(f)
+    op_namespace = {"pd": pd, "np": np}
+    for op in operators:
+        try:
+            exec(op["code"], op_namespace)
+        except Exception as e:
+            logger.warning(f"Failed to compile operator {op.get('name')}: {e}")
+    return {name: obj for name, obj in op_namespace.items() if callable(obj) and name not in ("pd", "np")}
+
+
+_OPERATOR_FUNCTIONS = _load_all_operators()
 
 
 # =============================================================================
@@ -106,7 +128,6 @@ def compute_rank_ic(
     Returns:
         Dictionary containing IC statistics.
     """
-    # Align the dataframes
     common_dates = factor_values.index.intersection(forward_returns.index)
     common_stocks = factor_values.columns.intersection(forward_returns.columns)
 
@@ -124,26 +145,23 @@ def compute_rank_ic(
     factor_aligned = factor_values.loc[common_dates, common_stocks]
     returns_aligned = forward_returns.loc[common_dates, common_stocks]
 
-    # Compute rank IC for each date (cross-sectional correlation)
     import warnings
     ic_series = []
     for date in common_dates:
         factor_row = factor_aligned.loc[date].dropna()
         returns_row = returns_aligned.loc[date].dropna()
 
-        # Get common stocks with valid values
         common = factor_row.index.intersection(returns_row.index)
-        if len(common) < 10:  # Need minimum number of stocks
+        if len(common) < 10:
             continue
 
         factor_vals = factor_row[common].values
         return_vals = returns_row[common].values
 
-        # Skip if either array has zero variance (constant)
+        # Spearman correlation requires non-constant inputs
         if np.std(factor_vals) < 1e-10 or np.std(return_vals) < 1e-10:
             continue
 
-        # Compute Spearman correlation (rank IC)
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -169,10 +187,7 @@ def compute_rank_ic(
     ic_std = float(np.std(ic_array))
     num_periods = len(ic_series)
 
-    # IC IR (Information Ratio) = mean_ic / ic_std
     ic_ir = mean_ic / ic_std if ic_std > 0 else None
-
-    # T-statistic for testing if mean IC is significantly different from 0
     t_stat = mean_ic / (ic_std / np.sqrt(num_periods)) if ic_std > 0 else None
     p_value = float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1))) if t_stat else None
 
@@ -195,154 +210,229 @@ def compute_rank_ic(
 
 
 def extract_code_from_response(code_response: str) -> str:
-    """Extract Python code from markdown code blocks or raw text."""
-    # Try to extract from markdown code blocks
+    """Extract Python code from markdown code blocks, falling back to raw text."""
     code_blocks = re.findall(r'```python\n(.*?)```', code_response, re.DOTALL)
     if code_blocks:
         return "\n".join(code_blocks)
 
-    # Try generic code blocks
     code_blocks = re.findall(r'```\n(.*?)```', code_response, re.DOTALL)
     if code_blocks:
         return "\n".join(code_blocks)
 
-    # Return as-is (might be raw code)
     return code_response
 
 
-# Known operator function names (not factor functions)
-OPERATOR_NAMES = {
-    'TS_Return', 'TS_Std', 'TS_Mean', 'TS_Max', 'TS_Min', 'TS_Rank', 'TS_Sum',
-    'TS_Corr', 'TS_Cov', 'TS_Delta', 'TS_Delay', 'TS_Product', 'TS_Skewness',
-    'TS_Kurtosis', 'TS_Argmax', 'TS_Argmin', 'TS_WMA',
-    'Decay_Linear', 'Decay_Exp', 'EMA',
-    'CS_Rank', 'CS_Zscore', 'CS_Demean', 'CS_Scale',
-    'Rank', 'Add', 'Sub', 'Mul', 'Div', 'Abs', 'Sign', 'Log', 'Power', 'Sqrt',
-    'Max', 'Min', 'Neg', 'Sigmoid', 'Tanh', 'Clip',
-}
+# Operator function names — derived from the actual operators loaded from
+# calculator.json so this set always stays in sync with available operators.
+OPERATOR_NAMES = set(_OPERATOR_FUNCTIONS.keys())
+
+# Standard data field names. Order matters: when a factor function uses a
+# generic parameter name (e.g. `x`, `data`, `prices`), parameters are filled
+# positionally from this list.
+STANDARD_FIELDS = ["Close", "Volume", "High", "Low", "Open"]
+
+
+def _is_dataframe_param(p: inspect.Parameter) -> bool:
+    """Whether this parameter expects a DataFrame to be passed in."""
+    ann = p.annotation
+    if ann is pd.DataFrame:
+        return True
+    if isinstance(ann, str) and "DataFrame" in ann:
+        return True
+    if ann is inspect.Parameter.empty:
+        # No type hint — treat as DataFrame only if there's no scalar default.
+        if p.default is inspect.Parameter.empty:
+            return True
+        if p.default is None or isinstance(p.default, pd.DataFrame):
+            return True
+        return False
+    return False
+
+
+def _resolve_factor_args(
+    sig: inspect.Signature,
+    stock_data: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """
+    Map factor function parameters to stock data DataFrames.
+
+    Only DataFrame parameters are filled. Numeric/string parameters
+    (lookback windows, thresholds, etc.) are left to use their defaults so
+    they don't get a DataFrame mistakenly passed in.
+
+    DataFrame parameter resolution:
+      1. Exact name match (e.g. `Close` -> Close).
+      2. Case-insensitive substring match in either direction
+         (e.g. `closing_price` -> Close, `vol` -> Volume).
+      3. Positional fallback for unmatched params, drawing from
+         STANDARD_FIELDS in order, skipping fields already assigned.
+    """
+    available_fields = [f for f in STANDARD_FIELDS if f in stock_data]
+    df_params = [name for name, p in sig.parameters.items() if _is_dataframe_param(p)]
+
+    kwargs: dict[str, pd.DataFrame] = {}
+    used_fields: set[str] = set()
+    unmatched: list[str] = []
+
+    for param in df_params:
+        match: str | None = None
+        p_lower = param.lower()
+        for field in available_fields:
+            f_lower = field.lower()
+            if p_lower == f_lower or f_lower in p_lower or p_lower in f_lower:
+                match = field
+                break
+
+        if match and match not in used_fields:
+            kwargs[param] = stock_data[match]
+            used_fields.add(match)
+        else:
+            unmatched.append(param)
+
+    fallback_pool = [f for f in available_fields if f not in used_fields]
+    for param in unmatched:
+        if not fallback_pool:
+            break
+        kwargs[param] = stock_data[fallback_pool.pop(0)]
+
+    return kwargs
 
 
 def execute_factor_code(code: str, stock_data: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str] | None:
     """
-    Execute factor code and return the factor values with the selected factor name.
+    Execute self-contained factor code and call its factor function(s).
+
+    The ``code`` string is expected to be a complete, runnable Python module
+    that defines its own imports, operator functions, and factor functions.
+    No pre-seeded globals are injected: factor functions receive their input
+    DataFrames as arguments, and operators come from definitions in the
+    module itself. This makes the saved ``factor_code`` portable: it can be
+    copy-pasted into any Python session and run as-is.
 
     Args:
-        code: Python code string containing factor function(s).
-        stock_data: Dictionary of stock data DataFrames.
+        code: Python source containing imports, operator defs, and at least
+              one factor function with OHLCV DataFrame parameters.
+        stock_data: Dictionary of stock data DataFrames passed as the
+                    arguments to each factor function.
 
     Returns:
-        Tuple of (factor_values DataFrame, selected_factor_name), or None if execution fails.
+        Tuple of (factor_values DataFrame, selected_factor_name), or None
+        if no factor function executed successfully.
     """
-    # Create execution namespace with required modules and data
-    namespace = {
-        'pd': pd,
-        'np': np,
-        'Open': stock_data.get('Open'),
-        'Close': stock_data.get('Close'),
-        'High': stock_data.get('High'),
-        'Low': stock_data.get('Low'),
-        'Volume': stock_data.get('Volume'),
-    }
+    namespace: dict[str, Any] = {}
 
     try:
-        # Execute the code to define functions
+        # Normalize "smart" Unicode quotes/dashes that some LLMs emit
+        # (e.g. ' ' " " - -) which would otherwise raise SyntaxError.
+        code = code.translate(str.maketrans({
+            "\u2018": "'", "\u2019": "'",
+            "\u201c": '"', "\u201d": '"',
+            "\u2013": "-", "\u2014": "-",
+            "\u00a0": " ",
+        }))
         exec(code, namespace)
 
-        # Find factor functions (excluding operators and builtins)
-        factor_functions = []
-        for name, obj in namespace.items():
-            if callable(obj) and not name.startswith('_') and name not in ['pd', 'np']:
-                if hasattr(obj, '__code__'):
-                    # Skip known operator functions
-                    if name not in OPERATOR_NAMES:
-                        factor_functions.append((name, obj))
+        # Factor functions are user-defined callables that aren't operators.
+        # `__code__` filters out modules/builtins; OPERATOR_NAMES filters out
+        # the operator definitions inlined at the top of the module.
+        candidate_functions = [
+            (name, obj) for name, obj in namespace.items()
+            if not name.startswith('_')
+            and callable(obj)
+            and hasattr(obj, '__code__')
+            and name not in OPERATOR_NAMES
+        ]
 
-        if not factor_functions:
+        if not candidate_functions:
             logger.warning("No factor functions found in the code")
             return None
 
-        logger.info(f"Found {len(factor_functions)} factor function(s): {[f[0] for f in factor_functions]}")
+        # Detect helper functions: any function called by another candidate
+        # is treated as a helper, not a factor.
+        helper_names: set[str] = set()
+        candidate_name_set = {name for name, _ in candidate_functions}
+        for _, fn in candidate_functions:
+            try:
+                src = inspect.getsource(fn)
+            except (OSError, TypeError):
+                continue
+            for name in candidate_name_set:
+                if re.search(rf'\b{re.escape(name)}\s*\(', src) and name != fn.__name__:
+                    helper_names.add(name)
 
-        # Execute all factor functions and find the best one by absolute IC
+        factor_functions = [(n, f) for n, f in candidate_functions if n not in helper_names]
+        if not factor_functions:
+            factor_functions = candidate_functions
+
+        logger.info(
+            f"Found {len(factor_functions)} factor function(s): "
+            f"{[f[0] for f in factor_functions]}"
+            + (f" (skipping helpers: {sorted(helper_names)})" if helper_names else "")
+        )
+
         best_result = None
         best_ic = None
         best_name = None
-        
+
+        import warnings
+        from scipy import stats as sp_stats
+
         for func_name, factor_func in factor_functions:
             try:
-                # Determine which data fields the function needs
-                import inspect
                 sig = inspect.signature(factor_func)
-                params = list(sig.parameters.keys())
+                kwargs = _resolve_factor_args(sig, stock_data)
+                df_param_count = sum(1 for p in sig.parameters.values() if _is_dataframe_param(p))
 
-                # Build kwargs based on function parameters (only pass what function accepts)
-                kwargs = {}
-                for param in params:
-                    param_upper = param.capitalize()
-                    if param in stock_data:
-                        kwargs[param] = stock_data[param]
-                    elif param_upper in stock_data:
-                        kwargs[param] = stock_data[param_upper]
-
-                if kwargs:
+                if len(kwargs) == df_param_count:
                     result = factor_func(**kwargs)
-                elif len(params) == 0:
-                    # Function takes no args, try calling it directly
+                elif len(sig.parameters) == 0:
                     result = factor_func()
                 else:
-                    # Try calling with no args (function might use globals)
-                    try:
-                        result = factor_func()
-                    except TypeError:
-                        # Last resort: skip this function
-                        logger.warning(f"Cannot determine args for {func_name}, skipping")
-                        continue
+                    logger.warning(
+                        f"Cannot determine args for {func_name} "
+                        f"(params={list(sig.parameters)}), skipping"
+                    )
+                    continue
 
                 if isinstance(result, pd.Series):
                     result = result.to_frame()
-                
+
                 if isinstance(result, pd.DataFrame):
-                    # Compute IC on ALL dates (not just a sample) for accurate selection
                     forward_ret = stock_data['Close'].shift(-5) / stock_data['Close'] - 1
                     valid_dates = result.dropna(how='all').index
                     sample_ics = []
-                    
-                    import warnings
-                    from scipy import stats as sp_stats
-                    
+
                     for date in valid_dates:
-                        if date in forward_ret.index:
-                            fr = result.loc[date].dropna()
-                            rr = forward_ret.loc[date].dropna()
-                            common = fr.index.intersection(rr.index)
-                            if len(common) >= 10:
-                                f_vals = fr[common].values
-                                r_vals = rr[common].values
-                                # Skip if either array has zero variance (constant)
-                                if np.std(f_vals) < 1e-10 or np.std(r_vals) < 1e-10:
-                                    continue
-                                try:
-                                    with warnings.catch_warnings():
-                                        warnings.simplefilter("ignore")
-                                        corr, _ = sp_stats.spearmanr(f_vals, r_vals)
-                                    if not np.isnan(corr):
-                                        sample_ics.append(corr)
-                                except:
-                                    pass
-                    
+                        if date not in forward_ret.index:
+                            continue
+                        fr = result.loc[date].dropna()
+                        rr = forward_ret.loc[date].dropna()
+                        common = fr.index.intersection(rr.index)
+                        if len(common) < 10:
+                            continue
+                        f_vals = fr[common].values
+                        r_vals = rr[common].values
+                        if np.std(f_vals) < 1e-10 or np.std(r_vals) < 1e-10:
+                            continue
+                        try:
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore")
+                                corr, _ = sp_stats.spearmanr(f_vals, r_vals)
+                            if not np.isnan(corr):
+                                sample_ics.append(corr)
+                        except Exception:
+                            pass
+
                     if sample_ics:
-                        mean_ic = abs(np.mean(sample_ics))  # Use |mean IC| for selection
+                        mean_ic = abs(np.mean(sample_ics))
                         logger.info(f"  {func_name}: |IC| = {mean_ic:.4f}")
-                        
                         if best_ic is None or mean_ic > best_ic:
                             best_ic = mean_ic
                             best_result = result
                             best_name = func_name
-                    else:
-                        # No IC computed, but still a valid result
-                        if best_result is None:
-                            best_result = result
-                            best_name = func_name
+                    elif best_result is None:
+                        best_result = result
+                        best_name = func_name
 
             except Exception as e:
                 logger.warning(f"Error executing {func_name}: {e}")
@@ -921,6 +1011,7 @@ AVAILABLE OPERATORS: {', '.join(sorted(valid_ops))}
 Generate ONLY the factor function:"""
 
         messages = [
+            SystemMessage(content="detailed thinking off"),
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ]
@@ -986,8 +1077,6 @@ Generate ONLY the factor function:"""
 
     async def generate_advice(factor_code: str, eval_results: dict) -> str:
         """Generate optimization advice."""
-        from langchain_core.messages import HumanMessage, SystemMessage
-
         mean_ic = eval_results.get("mean_ic")
         p_value = eval_results.get("p_value")
         error = eval_results.get("error", "")
@@ -995,7 +1084,6 @@ Generate ONLY the factor function:"""
         mean_ic_str = f"{mean_ic:.4f}" if mean_ic is not None else "N/A"
         p_value_str = f"{p_value:.4f}" if p_value is not None else "N/A"
 
-        # If there's an execution error, provide specific guidance
         if error and "Code execution failed" in error:
             return (
                 f"CODE EXECUTION ERROR: {error}\n\n"
