@@ -37,9 +37,10 @@ export NVIDIA_API_KEY="your-api-key-here"
 
 ```bash
 uv venv
-source .venv/bin/activate
 uv pip install -e .
 ```
+
+(All commands below use `uv run ...` so you don't need to activate the venv. If you prefer to activate it once and drop the `uv run` prefix, run `source .venv/bin/activate` first.)
 
 ### Download Data
 
@@ -218,6 +219,8 @@ Each run returns a structured JSON result containing the outcome, metrics, the f
 ### Resuming an Optimization Loop
 
 The workflow input accepts either a plain string or a JSON object that bundles `seed_feedback` from a prior run. Pass the `last_feedback` field from a prior result to start a new loop with the previous advice already applied — useful when you want more iterations than `max_iterations` allows, or want to switch models mid-run.
+
+The shell snippet below uses `jq` to read `last_feedback` from the prior result and pack it into the JSON input shape (install with `brew install jq` on macOS or `apt-get install jq` on Debian/Ubuntu):
 
 ```bash
 # First run — best effort, did not converge
