@@ -27,21 +27,21 @@ general:
 llms:
   factor_generator:
     _type: nim
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    model_name: nvidia/nemotron-3-nano-30b-a3b
     base_url: "https://integrate.api.nvidia.com/v1/"
     temperature: 0.8
     max_tokens: 3000
 
   code_generator:
     _type: nim
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    model_name: nvidia/nemotron-3-nano-30b-a3b
     base_url: "https://integrate.api.nvidia.com/v1/"
     temperature: 0.0
-    max_tokens: 1000
+    max_tokens: 2000
 
   optimization_advisor:
     _type: nim
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    model_name: nvidia/nemotron-3-nano-30b-a3b
     base_url: "https://integrate.api.nvidia.com/v1/"
     temperature: 0.5
     max_tokens: 1000
@@ -53,7 +53,7 @@ workflow:
   optimization_advisor_llm: optimization_advisor
   ic_threshold: 0.02
   p_value_threshold: 0.05
-  max_iterations: 2
+  max_iterations: 3
   num_factors: 2
   forward_periods: 5
   save_results: true

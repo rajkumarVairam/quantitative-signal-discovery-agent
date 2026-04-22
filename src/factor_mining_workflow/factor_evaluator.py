@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import traceback
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,34 @@ def _load_all_operators() -> dict[str, callable]:
 
 
 _OPERATOR_FUNCTIONS = _load_all_operators()
+
+
+def get_operator_arities() -> dict[str, tuple[int, int]]:
+    """Return ``{operator_name: (min_required_args, max_args)}`` for every loaded operator.
+
+    ``max_args`` is ``-1`` if the operator accepts ``*args``.
+    Used by the code generator to validate formulas before execution.
+    """
+    arities: dict[str, tuple[int, int]] = {}
+    for name, fn in _OPERATOR_FUNCTIONS.items():
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            continue
+        required = sum(
+            1 for p in sig.parameters.values()
+            if p.default is inspect.Parameter.empty
+            and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        )
+        has_varargs = any(
+            p.kind is inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+        )
+        max_args = -1 if has_varargs else len([
+            p for p in sig.parameters.values()
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ])
+        arities[name] = (required, max_args)
+    return arities
 
 
 def load_stock_data() -> dict[str, pd.DataFrame]:
@@ -129,73 +158,75 @@ def compute_rank_ic(
     factor_aligned = factor_values.loc[common_dates, common_stocks]
     returns_aligned = forward_returns.loc[common_dates, common_stocks]
 
-    import warnings
+    # Suppress numpy "invalid value encountered" RuntimeWarnings from std/mean
+    # calculations on edge-case rows. The dropna/length checks already handle
+    # the actual data validity logic correctly.
+    with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    ic_series = []
-    for date in common_dates:
-        factor_row = factor_aligned.loc[date].dropna()
-        returns_row = returns_aligned.loc[date].dropna()
+        ic_series = []
+        for date in common_dates:
+            factor_row = factor_aligned.loc[date].dropna()
+            returns_row = returns_aligned.loc[date].dropna()
 
-        common = factor_row.index.intersection(returns_row.index)
-        if len(common) < 10:
-            continue
+            common = factor_row.index.intersection(returns_row.index)
+            if len(common) < 10:
+                continue
 
-        factor_vals = factor_row[common].values
-        return_vals = returns_row[common].values
+            factor_vals = factor_row[common].values
+            return_vals = returns_row[common].values
 
-        # Spearman correlation requires non-constant inputs
-        if np.std(factor_vals) < 1e-10 or np.std(return_vals) < 1e-10:
-            continue
+            # Spearman correlation requires non-constant inputs.
+            if np.std(factor_vals) < 1e-10 or np.std(return_vals) < 1e-10:
+                continue
 
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+            try:
                 correlation, _ = stats.spearmanr(factor_vals, return_vals)
-            if not np.isnan(correlation):
-                ic_series.append(correlation)
-        except Exception:
-            continue
+                if not np.isnan(correlation):
+                    ic_series.append(correlation)
+            except Exception:
+                continue
 
-    if len(ic_series) == 0:
+        if len(ic_series) == 0:
+            return {
+                "mean_ic": None,
+                "ic_std": None,
+                "ic_ir": None,
+                "t_stat": None,
+                "p_value": None,
+                "num_periods": 0,
+                "error": "Could not compute IC for any period",
+            }
+
+        ic_array = np.array(ic_series)
+        mean_ic = float(np.mean(ic_array))
+        ic_std = float(np.std(ic_array))
+        num_periods = len(ic_series)
+
+        ic_ir = mean_ic / ic_std if ic_std > 0 else None
+        t_stat = mean_ic / (ic_std / np.sqrt(num_periods)) if ic_std > 0 else None
+        p_value = (
+            float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1)))
+            if t_stat
+            else None
+        )
+
         return {
-            "mean_ic": None,
-            "ic_std": None,
-            "ic_ir": None,
-            "t_stat": None,
-            "p_value": None,
-            "num_periods": 0,
-            "error": "Could not compute IC for any period",
+            "mean_ic": mean_ic,
+            "ic_std": ic_std,
+            "ic_ir": ic_ir,
+            "t_stat": t_stat,
+            "p_value": p_value,
+            "num_periods": num_periods,
+            "positive_ic_ratio": float(np.mean(ic_array > 0)),
+            "ic_percentiles": {
+                "5th": float(np.percentile(ic_array, 5)),
+                "25th": float(np.percentile(ic_array, 25)),
+                "50th": float(np.percentile(ic_array, 50)),
+                "75th": float(np.percentile(ic_array, 75)),
+                "95th": float(np.percentile(ic_array, 95)),
+            },
         }
-
-    ic_array = np.array(ic_series)
-    mean_ic = float(np.mean(ic_array))
-    ic_std = float(np.std(ic_array))
-    num_periods = len(ic_series)
-
-    ic_ir = mean_ic / ic_std if ic_std > 0 else None
-    t_stat = mean_ic / (ic_std / np.sqrt(num_periods)) if ic_std > 0 else None
-    p_value = (
-        float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1)))
-        if t_stat
-        else None
-    )
-
-    return {
-        "mean_ic": mean_ic,
-        "ic_std": ic_std,
-        "ic_ir": ic_ir,
-        "t_stat": t_stat,
-        "p_value": p_value,
-        "num_periods": num_periods,
-        "positive_ic_ratio": float(np.mean(ic_array > 0)),
-        "ic_percentiles": {
-            "5th": float(np.percentile(ic_array, 5)),
-            "25th": float(np.percentile(ic_array, 25)),
-            "50th": float(np.percentile(ic_array, 50)),
-            "75th": float(np.percentile(ic_array, 75)),
-            "95th": float(np.percentile(ic_array, 95)),
-        },
-    }
 
 
 def extract_code_from_response(code_response: str) -> str:
@@ -287,6 +318,34 @@ def _resolve_factor_args(
     return kwargs
 
 
+_SMART_UNICODE = str.maketrans(
+    {
+        "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "-",
+        "\u00a0": " ",
+    }
+)
+
+
+def _detect_helpers(candidates: list[tuple[str, Any]]) -> set[str]:
+    """
+    Among a set of candidate factor functions, return the names of those that
+    are *called by* another candidate (i.e. helpers, not factors themselves).
+    """
+    helpers: set[str] = set()
+    names = {name for name, _ in candidates}
+    for _, fn in candidates:
+        try:
+            src = inspect.getsource(fn)
+        except (OSError, TypeError):
+            continue
+        for name in names:
+            if name != fn.__name__ and re.search(rf"\b{re.escape(name)}\s*\(", src):
+                helpers.add(name)
+    return helpers
+
+
 def execute_factor_code(
     code: str, stock_data: dict[str, pd.DataFrame]
 ) -> tuple[pd.DataFrame, str] | None:
@@ -300,40 +359,20 @@ def execute_factor_code(
     module itself. This makes the saved ``factor_code`` portable: it can be
     copy-pasted into any Python session and run as-is.
 
-    Args:
-        code: Python source containing imports, operator defs, and at least
-              one factor function with OHLCV DataFrame parameters.
-        stock_data: Dictionary of stock data DataFrames passed as the
-                    arguments to each factor function.
-
-    Returns:
-        Tuple of (factor_values DataFrame, selected_factor_name), or None
-        if no factor function executed successfully.
+    Returns the (factor_values, selected_factor_name) tuple of the highest-IC
+    factor among those defined in ``code``, or None on failure.
     """
     namespace: dict[str, Any] = {}
 
     try:
-        # Normalize "smart" Unicode quotes/dashes that some LLMs emit
-        # (e.g. ' ' " " - -) which would otherwise raise SyntaxError.
-        code = code.translate(
-            str.maketrans(
-                {
-                    "\u2018": "'",
-                    "\u2019": "'",
-                    "\u201c": '"',
-                    "\u201d": '"',
-                    "\u2013": "-",
-                    "\u2014": "-",
-                    "\u00a0": " ",
-                }
-            )
-        )
-        exec(code, namespace)
+        # Smart-quote/dash normalization — some LLMs emit U+2018/U+2019 etc.
+        # that would otherwise raise SyntaxError.
+        exec(code.translate(_SMART_UNICODE), namespace)
 
-        # Factor functions are user-defined callables that aren't operators.
-        # `__code__` filters out modules/builtins; OPERATOR_NAMES filters out
-        # the operator definitions inlined at the top of the module.
-        candidate_functions = [
+        # Candidate factors: user-defined functions that aren't operators.
+        # `__code__` filters out modules/builtins; OPERATOR_NAMES excludes
+        # operator implementations inlined at the top of the module.
+        candidates = [
             (name, obj)
             for name, obj in namespace.items()
             if not name.startswith("_")
@@ -342,56 +381,37 @@ def execute_factor_code(
             and name not in OPERATOR_NAMES
         ]
 
-        if not candidate_functions:
+        if not candidates:
             logger.warning("No factor functions found in the code")
             return None
 
-        # Detect helper functions: any function called by another candidate
-        # is treated as a helper, not a factor.
-        helper_names: set[str] = set()
-        candidate_name_set = {name for name, _ in candidate_functions}
-        for _, fn in candidate_functions:
-            try:
-                src = inspect.getsource(fn)
-            except (OSError, TypeError):
-                continue
-            for name in candidate_name_set:
-                if re.search(rf"\b{re.escape(name)}\s*\(", src) and name != fn.__name__:
-                    helper_names.add(name)
-
-        factor_functions = [
-            (n, f) for n, f in candidate_functions if n not in helper_names
-        ]
-        if not factor_functions:
-            factor_functions = candidate_functions
+        helpers = _detect_helpers(candidates)
+        factor_functions = [(n, f) for n, f in candidates if n not in helpers] or candidates
 
         logger.info(
             f"Found {len(factor_functions)} factor function(s): "
             f"{[f[0] for f in factor_functions]}"
-            + (f" (skipping helpers: {sorted(helper_names)})" if helper_names else "")
+            + (f" (skipping helpers: {sorted(helpers)})" if helpers else "")
         )
 
         best_result = None
         best_ic = None
         best_name = None
 
-        import warnings
-
-        from scipy import stats as sp_stats
-
         # Numpy / pandas emit RuntimeWarnings when rolling-window operators
         # (TS_Std, TS_Var, TS_Skew, etc.) hit windows that contain NaN values.
         # The result is correctly NaN; the warnings are noise.
-        for func_name, factor_func in factor_functions:
-            try:
-                sig = inspect.signature(factor_func)
-                kwargs = _resolve_factor_args(sig, stock_data)
-                df_param_count = sum(
-                    1 for p in sig.parameters.values() if _is_dataframe_param(p)
-                )
+        with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=RuntimeWarning)
+            for func_name, factor_func in factor_functions:
+                try:
+                    sig = inspect.signature(factor_func)
+                    kwargs = _resolve_factor_args(sig, stock_data)
+                    df_param_count = sum(
+                        1 for p in sig.parameters.values() if _is_dataframe_param(p)
+                    )
+
                     if len(kwargs) == df_param_count:
                         result = factor_func(**kwargs)
                     elif len(sig.parameters) == 0:
@@ -403,53 +423,49 @@ def execute_factor_code(
                         )
                         continue
 
-                if isinstance(result, pd.Series):
-                    result = result.to_frame()
+                    if isinstance(result, pd.Series):
+                        result = result.to_frame()
 
-                if isinstance(result, pd.DataFrame):
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", category=RuntimeWarning)
+                    if isinstance(result, pd.DataFrame):
                         forward_ret = (
                             stock_data["Close"].shift(-5) / stock_data["Close"] - 1
                         )
-                    valid_dates = result.dropna(how="all").index
-                    sample_ics = []
+                        valid_dates = result.dropna(how="all").index
+                        sample_ics = []
 
-                    for date in valid_dates:
-                        if date not in forward_ret.index:
-                            continue
-                        fr = result.loc[date].dropna()
-                        rr = forward_ret.loc[date].dropna()
-                        common = fr.index.intersection(rr.index)
-                        if len(common) < 10:
-                            continue
-                        f_vals = fr[common].values
-                        r_vals = rr[common].values
-                        if np.std(f_vals) < 1e-10 or np.std(r_vals) < 1e-10:
-                            continue
-                        try:
-                            with warnings.catch_warnings():
-                                warnings.simplefilter("ignore")
-                                corr, _ = sp_stats.spearmanr(f_vals, r_vals)
-                            if not np.isnan(corr):
-                                sample_ics.append(corr)
-                        except Exception:
-                            pass
+                        for date in valid_dates:
+                            if date not in forward_ret.index:
+                                continue
+                            fr = result.loc[date].dropna()
+                            rr = forward_ret.loc[date].dropna()
+                            common = fr.index.intersection(rr.index)
+                            if len(common) < 10:
+                                continue
+                            f_vals = fr[common].values
+                            r_vals = rr[common].values
+                            if np.std(f_vals) < 1e-10 or np.std(r_vals) < 1e-10:
+                                continue
+                            try:
+                                corr, _ = stats.spearmanr(f_vals, r_vals)
+                                if not np.isnan(corr):
+                                    sample_ics.append(corr)
+                            except Exception:
+                                pass
 
-                    if sample_ics:
-                        mean_ic = abs(np.mean(sample_ics))
-                        logger.info(f"  {func_name}: |IC| = {mean_ic:.4f}")
-                        if best_ic is None or mean_ic > best_ic:
-                            best_ic = mean_ic
+                        if sample_ics:
+                            mean_ic = abs(np.mean(sample_ics))
+                            logger.info(f"  {func_name}: |IC| = {mean_ic:.4f}")
+                            if best_ic is None or mean_ic > best_ic:
+                                best_ic = mean_ic
+                                best_result = result
+                                best_name = func_name
+                        elif best_result is None:
                             best_result = result
                             best_name = func_name
-                    elif best_result is None:
-                        best_result = result
-                        best_name = func_name
 
-            except Exception as e:
-                logger.warning(f"Error executing {func_name}: {e}")
-                continue
+                except Exception as e:
+                    logger.warning(f"Error executing {func_name}: {e}")
+                    continue
 
         if best_result is not None:
             ic_str = f"{best_ic:.4f}" if best_ic is not None else "N/A"
@@ -458,6 +474,18 @@ def execute_factor_code(
 
         return None
 
+    except SyntaxError as e:
+        # Show the offending source line(s) so we can diagnose what the LLM
+        # produced (truncated string, smart quote we missed, etc.).
+        lineno = getattr(e, "lineno", None) or 0
+        lines = code.splitlines()
+        start, end = max(0, lineno - 3), min(len(lines), lineno + 2)
+        snippet = "\n".join(
+            f"  {i + 1:4d} {'>>' if i + 1 == lineno else '  '} {line}"
+            for i, line in enumerate(lines[start:end], start=start)
+        )
+        logger.error(f"SyntaxError in generated factor code: {e}\n{snippet}")
+        return None
     except Exception as e:
         logger.error(f"Error executing factor code: {e}")
         logger.debug(traceback.format_exc())

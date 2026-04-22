@@ -49,11 +49,6 @@ OUTPUT_TEMPLATE_JSON = TEMPLATE_DIR / "factor_output_template.json"
 VALID_DATA_FIELDS = {"Open", "Close", "High", "Low", "Volume"}
 
 
-# =============================================================================
-# Operator catalogue helpers
-# =============================================================================
-
-
 def load_calculator_operators() -> list[dict]:
     """Load operator definitions from ``template/calculator.json``."""
     if not CALCULATOR_JSON.exists():

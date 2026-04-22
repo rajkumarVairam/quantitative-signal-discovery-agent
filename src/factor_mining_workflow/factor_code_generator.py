@@ -36,6 +36,7 @@ The LLM only writes the factor function bodies. Operator code and imports
 are added deterministically so the output is self-contained and portable.
 """
 
+import ast
 import json
 import logging
 import re
@@ -49,6 +50,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
 
+from .factor_evaluator import get_operator_arities
 from .factor_generator import (
     VALID_DATA_FIELDS,
     get_operator_code_map,
@@ -67,9 +69,52 @@ from .llm_utils import (
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# Spec extraction (factor JSON -> normalized factor specs)
-# =============================================================================
+def _python_function_name(name: str | None, index: int) -> str:
+    """Convert a factor's display name into a valid ``factor_*`` Python identifier."""
+    base = re.sub(r"[^A-Za-z0-9_]+", "_", (name or f"factor_{index + 1}").lower()).strip("_")
+    if not base:
+        base = f"factor_{index + 1}"
+    if not base.startswith("factor"):
+        base = f"factor_{base}"
+    if base[0].isdigit():
+        base = f"factor_{base}"
+    return base
+
+
+def _infer_fields_from_formula(formula: str) -> list[str]:
+    """Detect which OHLCV fields the formula references."""
+    return [f for f in ("Open", "Close", "High", "Low", "Volume") if re.search(rf"\b{f}\b", formula)]
+
+
+def _check_formula_arity(formula: str, arities: dict[str, tuple[int, int]]) -> str | None:
+    """
+    Statically verify each operator call in a formula uses the right arg count.
+
+    Returns ``None`` if the formula is well-formed (or unparseable, in which case
+    we let runtime catch it). Returns a human-readable error string otherwise so
+    the caller can skip the spec and surface useful feedback.
+    """
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        return None  # not Python — let downstream parser deal with it
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        name = node.func.id
+        if name not in arities:
+            continue
+        min_args, max_args = arities[name]
+        n_args = len(node.args)
+        if n_args < min_args or (max_args >= 0 and n_args > max_args):
+            expected = (
+                f"{min_args}" if min_args == max_args
+                else f"{min_args}-{max_args}" if max_args >= 0
+                else f"at least {min_args}"
+            )
+            return f"{name} expects {expected} arg(s), got {n_args}"
+    return None
 
 
 def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list[dict]:
@@ -109,6 +154,7 @@ def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list
     required_fields = template.get("validation_rules", {}).get(
         "required_fields", ["name", "formula", "meaning"]
     )
+    arities = get_operator_arities()
 
     specs: list[dict] = []
     skipped: list[str] = []
@@ -125,6 +171,12 @@ def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list
         formula = normalize_operator_names(
             sanitize_unicode(factor["formula"]).strip(), valid_operators
         )
+
+        arity_error = _check_formula_arity(formula, arities)
+        if arity_error:
+            skipped.append(f"#{idx} ({factor.get('name', '?')}: {arity_error})")
+            continue
+
         fields = factor.get("data_fields_used") or _infer_fields_from_formula(formula)
         fields = [f for f in fields if f in VALID_DATA_FIELDS]
         if not fields:
@@ -156,11 +208,6 @@ def collect_operator_code(specs: list[dict], code_map: dict[str, str]) -> str:
         used.update(re.findall(r"\b([A-Za-z_]\w*)\s*\(", spec["formula"]))
     valid = sorted(op for op in used if op in code_map)
     return "\n".join(code_map[op] for op in valid)
-
-
-# =============================================================================
-# LLM call: factor specs -> Python function bodies
-# =============================================================================
 
 
 def _build_code_prompt(specs: list[dict], operator_signatures: str) -> tuple[str, str]:
@@ -256,33 +303,6 @@ async def generate_factor_code(
     function_code = await generate_factor_function_code(llm, specs, operators)
     operator_code = collect_operator_code(specs, code_map)
     return assemble_module(operator_code, function_code)
-
-
-# =============================================================================
-# Internal helpers
-# =============================================================================
-
-
-def _python_function_name(name: str | None, index: int) -> str:
-    """Convert a factor's display name into a valid ``factor_*`` Python identifier."""
-    base = re.sub(r"[^A-Za-z0-9_]+", "_", (name or f"factor_{index + 1}").lower()).strip("_")
-    if not base:
-        base = f"factor_{index + 1}"
-    if not base.startswith("factor"):
-        base = f"factor_{base}"
-    if base[0].isdigit():
-        base = f"factor_{base}"
-    return base
-
-
-def _infer_fields_from_formula(formula: str) -> list[str]:
-    """Detect which OHLCV fields the formula references."""
-    return [f for f in ("Open", "Close", "High", "Low", "Volume") if re.search(rf"\b{f}\b", formula)]
-
-
-# =============================================================================
-# NAT-registered function
-# =============================================================================
 
 
 class FactorCodeGeneratorConfig(FunctionBaseConfig, name="factor_code_generator"):

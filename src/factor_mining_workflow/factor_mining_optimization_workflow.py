@@ -27,10 +27,12 @@ iteration, scoring, feedback, and persisting accepted/best results.
 
 import json
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from langchain_core.messages import HumanMessage, SystemMessage
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -60,6 +62,40 @@ _STATUS_HEADLINE = {
     "best_effort": "Best-effort result (IC threshold not met)",
     "failed": "No valid factors generated",
 }
+
+
+def _compose_feedback(
+    advice: str,
+    best_result: dict | None,
+    best_ic: float | None,
+) -> str:
+    """
+    Bundle the advisor's advice with the best-known result so the next
+    iteration anchors on what already worked instead of wandering.
+
+    Without this, every iteration only sees the *latest* advice and tends to
+    drift — sometimes regressing past a good factor it found earlier.
+    """
+    if not best_result or best_ic is None:
+        return advice
+
+    try:
+        best_factors = json.loads(best_result["factor_json"])
+        items = best_factors if isinstance(best_factors, list) else [best_factors]
+        best_summary = "\n".join(
+            f"- {f.get('name', '?')}: {f.get('formula', '?')}"
+            for f in items if isinstance(f, dict)
+        )
+    except (json.JSONDecodeError, KeyError, TypeError):
+        best_summary = "(unable to summarize)"
+
+    return (
+        f"BEST FACTOR(S) SO FAR (iteration {best_result.get('iteration', '?')}, "
+        f"|IC| = {abs(best_ic):.4f}):\n{best_summary}\n\n"
+        f"ADVICE FROM LAST ITERATION:\n{advice}\n\n"
+        "Try to BEAT the best |IC| above. Build on what worked rather than "
+        "starting from scratch."
+    )
 
 
 def _parse_request(raw: str) -> tuple[str, str | None]:
@@ -152,11 +188,6 @@ def _format_workflow_result(
     return json.dumps(payload, indent=2, default=str)
 
 
-# =============================================================================
-# Result persistence
-# =============================================================================
-
-
 def save_factor_results(
     factor_json: str,
     factor_code: str,
@@ -183,11 +214,6 @@ def save_factor_results(
     return str(filepath)
 
 
-# =============================================================================
-# Workflow config
-# =============================================================================
-
-
 class FactorOptimizerConfig(FunctionBaseConfig, name="factor_optimizer"):
     """Iteratively generate, evaluate, and refine quantitative factors."""
 
@@ -201,11 +227,6 @@ class FactorOptimizerConfig(FunctionBaseConfig, name="factor_optimizer"):
     num_factors: int = Field(default=5, description="Factors per iteration")
     forward_periods: int = Field(default=5, description="Forward return periods")
     save_results: bool = Field(default=True, description="Save results to disk")
-
-
-# =============================================================================
-# Orchestrator
-# =============================================================================
 
 
 @register_function(config_type=FactorOptimizerConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -233,8 +254,6 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
         if not stock_data:
             return {"error": "No stock data", "mean_ic": None}
 
-        import warnings
-
         clean_code = extract_code_from_response(factor_code)
         exec_result = execute_factor_code(clean_code, stock_data)
         if exec_result is None:
@@ -247,7 +266,7 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
 
         # Suppress numpy/pandas RuntimeWarnings from rolling-window operators
         # over windows that contain NaN — the result is correctly NaN.
-        with warnings.catch_warnings():
+        with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             forward_returns = compute_forward_returns(close, periods=config.forward_periods)
             ic_results = compute_rank_ic(factor_values, forward_returns)
@@ -376,7 +395,11 @@ No prose, no preamble. Format:
                 )
 
             logger.info("Generating optimization feedback...")
-            feedback = await generate_feedback(factor_json, ic_results, iteration)
+            advice = await generate_feedback(factor_json, ic_results, iteration)
+            # Compose the feedback shown to the next iteration: anchor it on
+            # the best-known result so the model has a concrete target to
+            # beat, then append the advisor's bullets.
+            feedback = _compose_feedback(advice, best_result, best_ic)
 
         if best_result:
             saved_path = (
