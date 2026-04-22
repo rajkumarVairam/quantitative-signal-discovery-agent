@@ -358,7 +358,10 @@ No prose, no preamble. Format:
             )
 
             logger.info("Generating code...")
-            factor_code = await generate_factor_code(code_llm, factor_json, operators)
+            codegen_errors: list[str] = []
+            factor_code = await generate_factor_code(
+                code_llm, factor_json, operators, errors_out=codegen_errors
+            )
 
             logger.info("Evaluating IC...")
             ic_results = evaluate_ic(factor_code)
@@ -394,11 +397,25 @@ No prose, no preamble. Format:
                     last_feedback=feedback,
                 )
 
-            logger.info("Generating optimization feedback...")
-            advice = await generate_feedback(factor_json, ic_results, iteration)
+            # When every factor was rejected at parse/arity time the advisor
+            # has nothing to say (no IC numbers exist). Skip the LLM round-trip
+            # and feed the structural errors directly to the next iteration so
+            # the generator can self-correct.
+            if codegen_errors and mean_ic is None:
+                advice = (
+                    "Your previous factors were ALL REJECTED before evaluation. "
+                    "Re-read each operator signature carefully and match the argument "
+                    "count exactly. Specific failures:\n"
+                    + "\n".join(f"- {e}" for e in codegen_errors)
+                )
+                logger.info(f"Skipping advisor: {len(codegen_errors)} structural errors will drive next iteration")
+            else:
+                logger.info("Generating optimization feedback...")
+                advice = await generate_feedback(factor_json, ic_results, iteration)
+
             # Compose the feedback shown to the next iteration: anchor it on
             # the best-known result so the model has a concrete target to
-            # beat, then append the advisor's bullets.
+            # beat, then append the advisor's bullets (or arity errors).
             feedback = _compose_feedback(advice, best_result, best_ic)
 
         if best_result:

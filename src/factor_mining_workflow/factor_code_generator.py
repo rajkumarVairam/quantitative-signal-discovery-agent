@@ -117,20 +117,16 @@ def _check_formula_arity(formula: str, arities: dict[str, tuple[int, int]]) -> s
     return None
 
 
-def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list[dict]:
+def parse_factor_specs_with_errors(
+    factor_json: str, valid_operators: Iterable[str]
+) -> tuple[list[dict], list[str]]:
     """
-    Parse the factor generator's JSON into a list of normalized specs.
+    Parse the factor generator's JSON into normalized specs and a list of
+    skip messages explaining why any factors were rejected.
 
-    The required-field set comes from ``factor_output_template.json`` so the
-    schema is the single source of truth.
-
-    Each returned spec contains:
-      - ``name``: a valid Python identifier (snake_case, prefixed ``factor_``)
-      - ``formula``: the formula with canonical operator names
-      - ``fields``: list of OHLCV field names the factor needs
-      - ``doc``: short docstring (the factor's ``meaning``)
-
-    Malformed entries are skipped with a warning.
+    Each spec contains ``name``, ``formula``, ``fields``, ``doc``. Skip messages
+    are short strings like ``"#0 (Momentum: Rank expects 1 arg(s), got 2)"``
+    suitable for embedding directly into the next iteration's feedback prompt.
     """
     sanitized = sanitize_unicode(factor_json)
     try:
@@ -148,7 +144,7 @@ def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list
             f"Could not parse factor generator output as JSON ({len(factor_json)} chars). "
             f"Head: {head!r}" + (f" ... Tail: {tail!r}" if tail else "")
         )
-        return []
+        return [], ["generator output was not valid JSON"]
 
     template = load_output_template()
     required_fields = template.get("validation_rules", {}).get(
@@ -193,6 +189,17 @@ def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list
 
     if skipped:
         logger.warning(f"Skipped {len(skipped)} malformed factor(s): {skipped}")
+    return specs, skipped
+
+
+def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list[dict]:
+    """
+    Parse the factor generator's JSON into a list of normalized specs.
+
+    Backwards-compatible wrapper around :func:`parse_factor_specs_with_errors`
+    for callers that only care about the specs.
+    """
+    specs, _ = parse_factor_specs_with_errors(factor_json, valid_operators)
     return specs
 
 
@@ -285,6 +292,7 @@ async def generate_factor_code(
     llm,
     factor_json: str,
     operators: list[dict],
+    errors_out: list[str] | None = None,
 ) -> str:
     """
     End-to-end: factor JSON -> self-contained executable Python module.
@@ -292,9 +300,15 @@ async def generate_factor_code(
     1. Parse the factor JSON into normalized specs.
     2. Ask the LLM to write a function body for each spec.
     3. Inline the operator definitions and imports.
+
+    If ``errors_out`` is supplied, the parser's skip messages (e.g. arity
+    violations) are appended to it so the caller can route them back into the
+    next iteration's feedback prompt.
     """
     code_map = get_operator_code_map(operators)
-    specs = parse_factor_specs(factor_json, code_map.keys())
+    specs, parse_errors = parse_factor_specs_with_errors(factor_json, code_map.keys())
+    if errors_out is not None:
+        errors_out.extend(parse_errors)
 
     if not specs:
         logger.warning("No usable factors found in generator output")

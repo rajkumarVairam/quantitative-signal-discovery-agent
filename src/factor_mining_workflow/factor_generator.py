@@ -152,6 +152,13 @@ DATA: Open, Close, High, Low, Volume
 
 OPERATORS:
 {operators_list}
+
+STRICT RULES:
+- Every operator call MUST match its signature exactly — same number of arguments,
+  same order. Compose multiple operators if you need a different shape.
+- Do NOT invent operators or pass extra arguments to single-arg operators
+  (e.g. `Rank(x)` takes ONE argument; write `Rank(Sub(a, b))`, never `Rank(a, b)`).
+- Use only the exact operator names shown above (case-sensitive).
 {example_section}
 Fill in this exact template at the END of your reply (inside a ```json block):
 

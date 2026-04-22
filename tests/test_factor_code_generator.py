@@ -13,6 +13,7 @@ from factor_mining_workflow.factor_code_generator import (
     assemble_module,
     collect_operator_code,
     parse_factor_specs,
+    parse_factor_specs_with_errors,
 )
 from factor_mining_workflow.factor_generator import (
     get_operator_code_map,
@@ -116,6 +117,34 @@ class TestParseFactorSpecs:
         factor = _factor("F1", "TS_Return(Close, 5)", fields=["Close", "Bogus"])
         specs = parse_factor_specs(json.dumps([factor]), valid_op_names)
         assert specs[0]["fields"] == ["Close"]
+
+
+# ---------------------------------------------------------------------------
+# parse_factor_specs_with_errors — error surfacing for the orchestrator
+# ---------------------------------------------------------------------------
+
+
+class TestParseFactorSpecsWithErrors:
+    def test_returns_arity_violations(self, valid_op_names):
+        # Rank takes 1 arg; calling it with 2 should be skipped AND reported.
+        bad = _factor("RankBad", "Rank(Close, Volume)")
+        good = _factor("Mom", "TS_Return(Close, 20)")
+        specs, errors = parse_factor_specs_with_errors(
+            json.dumps([bad, good]), valid_op_names
+        )
+        assert len(specs) == 1
+        assert any("Rank expects 1" in e for e in errors)
+
+    def test_empty_errors_when_all_valid(self, valid_op_names):
+        good = _factor("Mom", "TS_Return(Close, 20)")
+        specs, errors = parse_factor_specs_with_errors(json.dumps([good]), valid_op_names)
+        assert len(specs) == 1
+        assert errors == []
+
+    def test_reports_unparseable_json(self, valid_op_names):
+        specs, errors = parse_factor_specs_with_errors("not json at all", valid_op_names)
+        assert specs == []
+        assert errors and "JSON" in errors[0]
 
 
 # ---------------------------------------------------------------------------
