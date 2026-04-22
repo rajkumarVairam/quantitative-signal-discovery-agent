@@ -379,6 +379,9 @@ def execute_factor_code(
 
         from scipy import stats as sp_stats
 
+        # Numpy / pandas emit RuntimeWarnings when rolling-window operators
+        # (TS_Std, TS_Var, TS_Skew, etc.) hit windows that contain NaN values.
+        # The result is correctly NaN; the warnings are noise.
         for func_name, factor_func in factor_functions:
             try:
                 sig = inspect.signature(factor_func)
@@ -387,24 +390,28 @@ def execute_factor_code(
                     1 for p in sig.parameters.values() if _is_dataframe_param(p)
                 )
 
-                if len(kwargs) == df_param_count:
-                    result = factor_func(**kwargs)
-                elif len(sig.parameters) == 0:
-                    result = factor_func()
-                else:
-                    logger.warning(
-                        f"Cannot determine args for {func_name} "
-                        f"(params={list(sig.parameters)}), skipping"
-                    )
-                    continue
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=RuntimeWarning)
+                    if len(kwargs) == df_param_count:
+                        result = factor_func(**kwargs)
+                    elif len(sig.parameters) == 0:
+                        result = factor_func()
+                    else:
+                        logger.warning(
+                            f"Cannot determine args for {func_name} "
+                            f"(params={list(sig.parameters)}), skipping"
+                        )
+                        continue
 
                 if isinstance(result, pd.Series):
                     result = result.to_frame()
 
                 if isinstance(result, pd.DataFrame):
-                    forward_ret = (
-                        stock_data["Close"].shift(-5) / stock_data["Close"] - 1
-                    )
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=RuntimeWarning)
+                        forward_ret = (
+                            stock_data["Close"].shift(-5) / stock_data["Close"] - 1
+                        )
                     valid_dates = result.dropna(how="all").index
                     sample_ics = []
 

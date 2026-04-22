@@ -233,6 +233,8 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
         if not stock_data:
             return {"error": "No stock data", "mean_ic": None}
 
+        import warnings
+
         clean_code = extract_code_from_response(factor_code)
         exec_result = execute_factor_code(clean_code, stock_data)
         if exec_result is None:
@@ -243,8 +245,12 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
         if close is None:
             return {"error": "No Close data", "mean_ic": None}
 
-        forward_returns = compute_forward_returns(close, periods=config.forward_periods)
-        ic_results = compute_rank_ic(factor_values, forward_returns)
+        # Suppress numpy/pandas RuntimeWarnings from rolling-window operators
+        # over windows that contain NaN — the result is correctly NaN.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            forward_returns = compute_forward_returns(close, periods=config.forward_periods)
+            ic_results = compute_rank_ic(factor_values, forward_returns)
         ic_results["selected_factor"] = selected_factor
         return ic_results
 
