@@ -142,15 +142,17 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 
 | Parameter | Description |
 |-----------|-------------|
-| `factor_generator_llm` | LLM for generating factor expressions (higher temperature for creativity) |
-| `code_generator_llm` | LLM for converting expressions to executable code (lower temperature for precision) |
-| `optimization_advisor_llm` | LLM for generating optimization feedback (balanced temperature) |
+| `factor_generator_llm` | Reference to the LLM block used for factor ideation (typically higher temperature for creativity) |
+| `code_generator_llm` | Reference to the LLM block used for translating formulas into Python (low temperature for determinism) |
+| `optimization_advisor_llm` | Reference to the LLM block used to produce iteration feedback (balanced temperature) |
 | `ic_threshold` | Minimum absolute IC value to accept a factor (e.g., 0.02 = 2%) |
 | `p_value_threshold` | Maximum p-value for statistical significance (e.g., 0.05 = 5%) |
-| `max_iterations` | Maximum number of optimization iterations before accepting best result |
+| `max_iterations` | Maximum number of optimization iterations before returning the best result |
 | `num_factors` | Number of factors to generate per iteration |
 | `forward_periods` | Number of days for forward return calculation (e.g., 5 = weekly) |
-| `save_results` | Whether to save successful factors to disk |
+| `save_results` | Whether to save accepted/best-effort factors to `output/` |
+
+You can use the same model for all three agents (the default), or mix sizes: for example, assign a higher-capability reasoning model like `nvidia/llama-3.3-nemotron-super-49b-v1.5` to the Factor Agent for richer ideation while keeping the smaller `nvidia/nvidia-nemotron-nano-9b-v2` for the Code and Advisor agents — a one-line change in the YAML.
 
 ## Evaluation Metrics
 
@@ -244,39 +246,53 @@ result2 = json.loads(await runner.ainvoke(resume_input))
 
 The `last_feedback` field can be persisted to disk and re-loaded later — there's no in-memory state required to resume.
 
+## Development
+
+Tests cover the agent helpers, prompt builders, JSON parsing, module assembly, and end-to-end execution:
+
+```bash
+uv pip install -e ".[test]"
+uv run pytest tests/
+```
+
+The repo also ships a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs `ruff` lint and the test suite on every pull request to `main`.
+
 ## Project Structure
 
 ```
 quant-factor-mining-agent/
+├── .github/workflows/ci.yml          # PR-level CI: ruff lint + pytest
 ├── configs/
-│   └── config-optimization.yml
+│   └── config-optimization.yml       # Workflow + LLM config (single source of truth)
 ├── notebooks/
-│   ├── factor-mining-workflow.ipynb
-│   └── images/
-│       └── workflow-architecture.png
-├── pyproject.toml
+│   ├── factor-mining-workflow.ipynb  # Interactive walkthrough
+│   └── images/workflow-architecture.png
+├── pyproject.toml                    # Dependencies, ruff/pytest config, NAT entry point
+├── uv.lock                           # Pinned dependency resolution
 ├── README.md
-└── src/
-    └── factor_mining_workflow/
-        ├── __init__.py
-        ├── data/sp500/           # S&P 500 price-volume data
-        ├── download_data.py      # Script to fetch data via yfinance
-        ├── factor_generator.py   # Factor agent: generates JSON factor descriptions
-        ├── factor_code_generator.py  # Code agent: turns JSON into executable Python
-        ├── factor_evaluator.py   # Eval agent: runs factor code, computes Rank IC
-        ├── factor_mining_optimization_workflow.py  # Orchestrator (closed-loop)
-        ├── llm_utils.py          # Shared LLM-output helpers (parse, sanitize, normalize)
-        ├── register.py           # NAT function registration
-        └── template/
-            ├── calculator.json   # Operator catalogue (name, signature, code)
-            └── factor_output_template.json  # JSON schema the factor agent fills in
+├── src/factor_mining_workflow/
+│   ├── __init__.py
+│   ├── register.py                            # NAT function registration
+│   ├── factor_generator.py                    # Factor agent: generates JSON factor descriptions
+│   ├── factor_code_generator.py               # Code agent: turns JSON into executable Python
+│   ├── factor_evaluator.py                    # Eval agent: runs factor code, computes Rank IC
+│   ├── factor_mining_optimization_workflow.py # Orchestrator (closed-loop generate/code/eval/feedback)
+│   ├── llm_utils.py                           # Shared LLM-output helpers (parse, sanitize, normalize)
+│   ├── download_data.py                       # Fetches S&P 500 data via yfinance
+│   ├── data/sp500/                            # OHLCV CSVs (gitignored)
+│   ├── output/                                # Saved factor results (gitignored)
+│   └── template/
+│       ├── calculator.json                    # Operator catalogue (name, signature, code)
+│       └── factor_output_template.json        # JSON schema the factor agent fills in
+└── tests/                                     # pytest suite (86 tests)
 ```
 
 ## Additional Resources
 
 - [NeMo Agent Toolkit Documentation](https://docs.nvidia.com/nemo-agent-toolkit/)
 - [Arize Phoenix Documentation](https://arize.com/docs/phoenix)
+- [NeMo Fine-tuning Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/sft_peft/index.html) — to specialize Nemotron on your factor history
 
 ## License
 
-See LICENSE file for details.
+See [LICENSE.txt](LICENSE.txt) and [LICENSE-3rd-party.txt](LICENSE-3rd-party.txt) for details.
