@@ -70,12 +70,17 @@ def extract_response_text(response) -> str:
     """
     Pull the *answer* text out of a LangChain LLM response.
 
-    Intentionally does NOT fall back to ``additional_kwargs['reasoning_content']``:
-    for NVIDIA reasoning models that field holds chain-of-thought, not the
-    final answer; surfacing it causes downstream parsers to fail on long prose.
+    Strategy:
+      1. Prefer ``response.content`` (string or content-block list). This is
+         where the post-reasoning answer lives for most models.
+      2. If ``.content`` is empty, fall back to
+         ``additional_kwargs['reasoning_content']``. NVIDIA reasoning models
+         sometimes route the entire output (including the final JSON answer)
+         into the reasoning channel. The downstream JSON parser is robust to
+         long prose surrounding the JSON, so this fallback is safe.
     """
     content = getattr(response, "content", None)
-    if isinstance(content, str):
+    if isinstance(content, str) and content.strip():
         return content
     if isinstance(content, list):
         parts: list[str] = []
@@ -86,7 +91,15 @@ def extract_response_text(response) -> str:
                     parts.append(text)
             elif isinstance(block, str):
                 parts.append(block)
-        return "".join(parts)
+        joined = "".join(parts)
+        if joined.strip():
+            return joined
+
+    extras = getattr(response, "additional_kwargs", {}) or {}
+    reasoning = extras.get("reasoning_content")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+
     return ""
 
 

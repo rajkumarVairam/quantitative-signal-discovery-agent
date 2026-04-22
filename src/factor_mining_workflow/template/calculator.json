@@ -188,8 +188,8 @@
     {
         "name": "Decay_Exp",
         "signature": "Decay_Exp(x: pd.DataFrame, d: int) -> pd.DataFrame",
-        "meanings": "Exponentially weighted moving average with delay over the past d days.",
-        "code": "\ndef Decay_Exp(x: pd.DataFrame, d: int, alpha: float) -> pd.DataFrame:\n    return x.ewm(span=d, adjust=False).mean()\n"
+        "meanings": "Exponentially weighted moving average over the past d days (span=d).",
+        "code": "\ndef Decay_Exp(x: pd.DataFrame, d: int) -> pd.DataFrame:\n    return x.ewm(span=d, adjust=False).mean()\n"
     },
     {
         "name": "EMA",

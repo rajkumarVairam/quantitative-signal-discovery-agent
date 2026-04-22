@@ -215,25 +215,34 @@ Each run returns a structured JSON result containing the outcome, metrics, the f
 
 ### Resuming an Optimization Loop
 
-`run_optimization` accepts an optional `seed_feedback` argument. Pass the `last_feedback` from a prior result to start a new run with the previous advice already applied — useful when you want more iterations than `max_iterations` allows, or want to switch models mid-run.
+The workflow input accepts either a plain string or a JSON object that bundles `seed_feedback` from a prior run. Pass the `last_feedback` field from a prior result to start a new loop with the previous advice already applied — useful when you want more iterations than `max_iterations` allows, or want to switch models mid-run.
+
+```bash
+# First run — best effort, did not converge
+nat run --config_file configs/config-optimization.yml --input "momentum factors" > result1.json
+
+# Extract last_feedback and resume
+SEED=$(jq -r '.last_feedback' result1.json)
+nat run --config_file configs/config-optimization.yml \
+  --input "$(jq -nc --arg req 'momentum factors' --arg seed "$SEED" \
+              '{request: $req, seed_feedback: $seed}')"
+```
+
+Or programmatically, passing the same JSON shape as the workflow's input string:
 
 ```python
 import json
-from nat.runtime.runner import Runner
 
-# First run — best effort, did not converge
 result1 = json.loads(await runner.ainvoke("momentum factors"))
 
-# Resume from the last feedback
-result2 = json.loads(
-    await runner.ainvoke(
-        "momentum factors",
-        seed_feedback=result1["last_feedback"],
-    )
-)
+resume_input = json.dumps({
+    "request": "momentum factors",
+    "seed_feedback": result1["last_feedback"],
+})
+result2 = json.loads(await runner.ainvoke(resume_input))
 ```
 
-Or persist the `last_feedback` field to disk and re-load it later — there's no in-memory state required to resume.
+The `last_feedback` field can be persisted to disk and re-loaded later — there's no in-memory state required to resume.
 
 ## Project Structure
 

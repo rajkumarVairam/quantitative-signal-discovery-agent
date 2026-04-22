@@ -62,6 +62,29 @@ _STATUS_HEADLINE = {
 }
 
 
+def _parse_request(raw: str) -> tuple[str, str | None]:
+    """
+    Decode the workflow input.
+
+    Accepts either:
+      - A plain factor request string: ``"momentum factors"``
+      - A JSON object with a ``request`` field and optional ``seed_feedback``:
+        ``{"request": "momentum factors", "seed_feedback": "- try ..."}``
+
+    Returns ``(request_text, seed_feedback_or_None)``. The JSON form is
+    opt-in so the standard ``nat run --input "..."`` interface is unchanged.
+    """
+    text = (raw or "").strip()
+    if text.startswith("{"):
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and "request" in obj:
+                return str(obj["request"]), obj.get("seed_feedback")
+        except json.JSONDecodeError:
+            pass
+    return raw, None
+
+
 def _format_workflow_result(
     status: str,
     request: str,
@@ -279,16 +302,21 @@ No prose, no preamble. Format:
 
     # ---- main optimization loop ----
 
-    async def run_optimization(request: str, seed_feedback: str | None = None) -> str:
+    async def run_optimization(request: str) -> str:
         """
         Run the closed-loop factor mining optimization.
 
         Args:
-            request: What kind of factors to generate (e.g., "momentum factors").
-            seed_feedback: Optimization advice from a previous run to start with.
-                           Pass the ``last_feedback`` field from a prior result
-                           to resume an optimization loop where it left off.
+            request: Either a plain factor request string (e.g.,
+                ``"momentum factors"``) or a JSON object with the shape
+                ``{"request": "momentum factors", "seed_feedback": "..."}``
+                to resume from a prior run's ``last_feedback``.
+
+                The JSON form is opt-in so the CLI-friendly single-string
+                interface still works (NAT's input schema is single-arg).
         """
+        request_text, seed_feedback = _parse_request(request)
+
         best_result: dict | None = None
         best_ic: float | None = None
         feedback: str | None = seed_feedback
@@ -301,7 +329,7 @@ No prose, no preamble. Format:
 
             logger.info("Generating factors...")
             factor_json = await generate_factor_json(
-                factor_llm, request, config.num_factors, operators, feedback
+                factor_llm, request_text, config.num_factors, operators, feedback
             )
 
             logger.info("Generating code...")
@@ -331,7 +359,7 @@ No prose, no preamble. Format:
                 )
                 return _format_workflow_result(
                     status="accepted",
-                    request=request,
+                    request=request_text,
                     iteration=iteration,
                     total_iterations=config.max_iterations,
                     factor_json=factor_json,
@@ -357,7 +385,7 @@ No prose, no preamble. Format:
             )
             return _format_workflow_result(
                 status="best_effort",
-                request=request,
+                request=request_text,
                 iteration=best_result["iteration"],
                 total_iterations=config.max_iterations,
                 factor_json=best_result["factor_json"],
@@ -369,7 +397,7 @@ No prose, no preamble. Format:
 
         return _format_workflow_result(
             status="failed",
-            request=request,
+            request=request_text,
             iteration=0,
             total_iterations=config.max_iterations,
             factor_json="",

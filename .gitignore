@@ -4,3 +4,6 @@ output/
 .venv/
 .vscode/
 src/factor_mining_workflow/data/sp500/*.csv
+
+# Local documentation (not for upstream)
+docs/
