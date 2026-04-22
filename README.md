@@ -60,7 +60,11 @@ uv run python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2
 
 ## Deployment Options
 
-This workflow can be deployed in two ways:
+This workflow can be deployed in three ways:
+
+### Deploy on Brev
+
+Spin up a one-click GPU instance on [brev.nvidia.com](https://brev.nvidia.com/) and open [`brev/launchable-setup.ipynb`](brev/launchable-setup.ipynb). It clones the repo, installs `uv`, syncs dependencies, registers a Jupyter kernel, and downloads the S&P 500 dataset. When it finishes, follow the inline link to jump into [`notebooks/factor-mining-workflow.ipynb`](notebooks/factor-mining-workflow.ipynb) and start mining factors.
 
 ### Option 1: Interactive Notebook Deployment
 
@@ -265,6 +269,8 @@ The repo also ships a GitHub Actions workflow (`.github/workflows/ci.yml`) that 
 ```
 quant-factor-mining-agent/
 ├── .github/workflows/ci.yml          # PR-level CI: ruff lint + pytest
+├── brev/
+│   └── launchable-setup.ipynb        # One-shot environment setup for Brev launchables
 ├── configs/
 │   └── config-optimization.yml       # Workflow + LLM config (single source of truth)
 ├── notebooks/

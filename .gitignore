@@ -5,5 +5,9 @@ output/
 .vscode/
 src/factor_mining_workflow/data/sp500/*.csv
 
+# Secrets — never commit API keys.
+.env
+.env.local
+
 # Local documentation (not for upstream)
 docs/
