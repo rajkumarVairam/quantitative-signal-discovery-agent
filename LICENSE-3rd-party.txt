@@ -1,5 +1,5 @@
-Factor Mining Workflow Third-Party Licenses
-============================================
+Signal Discovery Workflow Third-Party Licenses
+==============================================
 
 This file contains third-party license information for software packages used in this project.
 The licenses below apply to one or more packages included in this project. For each license,

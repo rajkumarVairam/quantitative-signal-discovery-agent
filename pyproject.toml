@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 requires = ["setuptools >= 64", "setuptools-scm>=8"]
 
 [project]
-name = "factor_mining_workflow"
+name = "signal_discovery_workflow"
 dynamic = ["version"]
 dependencies = [
   # Pin both NAT packages to the same compatible release line. Mixing different
@@ -36,14 +36,14 @@ dependencies = [
   "jupyter",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Factor Mining Workflow - Example for NeMo Agent Toolkit"
+description = "Signal Discovery Workflow - Example for NeMo Agent Toolkit"
 classifiers = ["Programming Language :: Python"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
 
 [project.entry-points.'nat.components']
-factor_mining_workflow = "factor_mining_workflow.register"
+signal_discovery_workflow = "signal_discovery_workflow.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

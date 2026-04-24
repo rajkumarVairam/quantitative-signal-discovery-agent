@@ -14,10 +14,10 @@
 # limitations under the License.
 
 """
-Factor Mining Optimization Workflow.
+Signal Discovery Optimization Workflow.
 
 Orchestrates the loop:
-    factor_generator -> factor_code_generator -> factor_evaluator
+    signal_generator -> signal_code_generator -> signal_evaluator
                 ^                                           |
                 |__________ optimization advisor ___________|
 
@@ -41,16 +41,16 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
 
-from .factor_code_generator import generate_factor_code
-from .factor_evaluator import (
+from .llm_utils import NO_THINK_INSTRUCTION, extract_response_text
+from .signal_code_generator import generate_signal_code
+from .signal_evaluator import (
     compute_forward_returns,
     compute_rank_ic,
-    execute_factor_code,
+    execute_signal_code,
     extract_code_from_response,
     load_stock_data,
 )
-from .factor_generator import generate_factor_json, load_calculator_operators
-from .llm_utils import NO_THINK_INSTRUCTION, extract_response_text
+from .signal_generator import generate_signal_json, load_calculator_operators
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,9 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 
 
 _STATUS_HEADLINE = {
-    "accepted": "Factor accepted",
+    "accepted": "Signal accepted",
     "best_effort": "Best-effort result (IC threshold not met)",
-    "failed": "No valid factors generated",
+    "failed": "No valid signals generated",
 }
 
 
@@ -74,14 +74,14 @@ def _compose_feedback(
     iteration anchors on what already worked instead of wandering.
 
     Without this, every iteration only sees the *latest* advice and tends to
-    drift — sometimes regressing past a good factor it found earlier.
+    drift — sometimes regressing past a good signal it found earlier.
     """
     if not best_result or best_ic is None:
         return advice
 
     try:
-        best_factors = json.loads(best_result["factor_json"])
-        items = best_factors if isinstance(best_factors, list) else [best_factors]
+        best_signals = json.loads(best_result["signal_json"])
+        items = best_signals if isinstance(best_signals, list) else [best_signals]
         best_summary = "\n".join(
             f"- {f.get('name', '?')}: {f.get('formula', '?')}"
             for f in items if isinstance(f, dict)
@@ -90,7 +90,7 @@ def _compose_feedback(
         best_summary = "(unable to summarize)"
 
     return (
-        f"BEST FACTOR(S) SO FAR (iteration {best_result.get('iteration', '?')}, "
+        f"BEST SIGNAL(S) SO FAR (iteration {best_result.get('iteration', '?')}, "
         f"|IC| = {abs(best_ic):.4f}):\n{best_summary}\n\n"
         f"ADVICE FROM LAST ITERATION:\n{advice}\n\n"
         "Try to BEAT the best |IC| above. Build on what worked rather than "
@@ -103,9 +103,9 @@ def _parse_request(raw: str) -> tuple[str, str | None]:
     Decode the workflow input.
 
     Accepts either:
-      - A plain factor request string: ``"momentum factors"``
+      - A plain signal request string: ``"momentum signals"``
       - A JSON object with a ``request`` field and optional ``seed_feedback``:
-        ``{"request": "momentum factors", "seed_feedback": "- try ..."}``
+        ``{"request": "momentum signals", "seed_feedback": "- try ..."}``
 
     Returns ``(request_text, seed_feedback_or_None)``. The JSON form is
     opt-in so the standard ``nat run --input "..."`` interface is unchanged.
@@ -126,7 +126,7 @@ def _format_workflow_result(
     request: str,
     iteration: int,
     total_iterations: int,
-    factor_json: str,
+    signal_json: str,
     ic_results: dict,
     saved_path: str | None,
     config,
@@ -138,14 +138,14 @@ def _format_workflow_result(
     iteration. Including it in the result lets a caller resume the loop later
     by passing it back in as the seed feedback for a new run.
     """
-    factors_summary = []
+    signals_summary = []
     try:
-        data = json.loads(factor_json) if factor_json else []
+        data = json.loads(signal_json) if signal_json else []
         items = data if isinstance(data, list) else [data]
         for item in items:
             if not isinstance(item, dict):
                 continue
-            factors_summary.append(
+            signals_summary.append(
                 {
                     "name": item.get("name"),
                     "formula": item.get("formula"),
@@ -169,13 +169,13 @@ def _format_workflow_result(
         "request": request,
         "iteration": iteration,
         "total_iterations": total_iterations,
-        "selected_factor": ic_results.get("selected_factor"),
+        "selected_signal": ic_results.get("selected_signal"),
         "thresholds": {
             "ic_threshold": config.ic_threshold,
             "p_value_threshold": config.p_value_threshold,
         },
         "metrics": metrics,
-        "factors": factors_summary,
+        "signals": signals_summary,
         "saved_path": saved_path,
     }
 
@@ -188,77 +188,77 @@ def _format_workflow_result(
     return json.dumps(payload, indent=2, default=str)
 
 
-def save_factor_results(
-    factor_json: str,
-    factor_code: str,
+def save_signal_results(
+    signal_json: str,
+    signal_code: str,
     ic_results: dict,
     iteration: int,
 ) -> str:
-    """Save factor results to ``output/factor_<timestamp>_iter<n>.json``."""
+    """Save signal results to ``output/signal_<timestamp>_iter<n>.json``."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = OUTPUT_DIR / f"factor_{timestamp}_iter{iteration}.json"
+    filepath = OUTPUT_DIR / f"signal_{timestamp}_iter{iteration}.json"
 
-    metrics = {k: v for k, v in ic_results.items() if k != "selected_factor"}
+    metrics = {k: v for k, v in ic_results.items() if k != "selected_signal"}
     payload = {
         "timestamp": timestamp,
         "iteration": iteration,
-        "selected_factor": ic_results.get("selected_factor"),
-        "factor_description": factor_json,
-        "factor_code": factor_code,
+        "selected_signal": ic_results.get("selected_signal"),
+        "signal_description": signal_json,
+        "signal_code": signal_code,
         "evaluation_metrics": metrics,
     }
     with open(filepath, "w") as f:
         json.dump(payload, f, indent=2)
-    logger.info(f"Saved factor results to {filepath}")
+    logger.info(f"Saved signal results to {filepath}")
     return str(filepath)
 
 
-class FactorOptimizerConfig(FunctionBaseConfig, name="factor_optimizer"):
-    """Iteratively generate, evaluate, and refine quantitative factors."""
+class SignalOptimizerConfig(FunctionBaseConfig, name="signal_optimizer"):
+    """Iteratively generate, evaluate, and refine quantitative signals."""
 
-    factor_generator_llm: str | None = Field(default=None, description="LLM for factor generation")
+    signal_generator_llm: str | None = Field(default=None, description="LLM for signal generation")
     code_generator_llm: str | None = Field(default=None, description="LLM for code generation")
     optimization_advisor_llm: str | None = Field(default=None, description="LLM for optimization feedback")
     llm_name: str | None = Field(default=None, description="Fallback LLM if specific ones not set")
     ic_threshold: float = Field(default=0.03, description="Minimum |IC| to accept")
     p_value_threshold: float = Field(default=0.05, description="Maximum p-value")
     max_iterations: int = Field(default=3, description="Max optimization attempts")
-    num_factors: int = Field(default=5, description="Factors per iteration")
+    num_signals: int = Field(default=5, description="Signals per iteration")
     forward_periods: int = Field(default=5, description="Forward return periods")
     save_results: bool = Field(default=True, description="Save results to disk")
 
 
-@register_function(config_type=FactorOptimizerConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Builder):
-    """Compose the factor / code / evaluator agents into an optimization loop."""
+@register_function(config_type=SignalOptimizerConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def signal_optimizer_function(config: SignalOptimizerConfig, builder: Builder):
+    """Compose the signal / code / evaluator agents into an optimization loop."""
 
-    factor_llm_name = config.factor_generator_llm or config.llm_name
+    signal_llm_name = config.signal_generator_llm or config.llm_name
     code_llm_name = config.code_generator_llm or config.llm_name
     advisor_llm_name = config.optimization_advisor_llm or config.llm_name
-    if not factor_llm_name:
-        raise ValueError("Must specify llm_name or factor_generator_llm")
+    if not signal_llm_name:
+        raise ValueError("Must specify llm_name or signal_generator_llm")
 
-    factor_llm = await builder.get_llm(factor_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    code_llm = await builder.get_llm(code_llm_name or factor_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    advisor_llm = await builder.get_llm(advisor_llm_name or factor_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    logger.info(f"LLMs: factor={factor_llm_name}, code={code_llm_name}, advisor={advisor_llm_name}")
+    signal_llm = await builder.get_llm(signal_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    code_llm = await builder.get_llm(code_llm_name or signal_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    advisor_llm = await builder.get_llm(advisor_llm_name or signal_llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    logger.info(f"LLMs: signal={signal_llm_name}, code={code_llm_name}, advisor={advisor_llm_name}")
 
     operators = load_calculator_operators()
     stock_data = load_stock_data()
 
     # ---- per-step helpers (close over the LLMs and shared state) ----
 
-    def evaluate_ic(factor_code: str) -> dict[str, Any]:
-        """Run the factor code and compute its rank IC against forward returns."""
+    def evaluate_ic(signal_code: str) -> dict[str, Any]:
+        """Run the signal code and compute its rank IC against forward returns."""
         if not stock_data:
             return {"error": "No stock data", "mean_ic": None}
 
-        clean_code = extract_code_from_response(factor_code)
-        exec_result = execute_factor_code(clean_code, stock_data)
+        clean_code = extract_code_from_response(signal_code)
+        exec_result = execute_signal_code(clean_code, stock_data)
         if exec_result is None:
             return {"error": "Code execution failed", "mean_ic": None}
-        factor_values, selected_factor = exec_result
+        signal_values, selected_signal = exec_result
 
         close = stock_data.get("Close")
         if close is None:
@@ -269,8 +269,8 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
         with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             forward_returns = compute_forward_returns(close, periods=config.forward_periods)
-            ic_results = compute_rank_ic(factor_values, forward_returns)
-        ic_results["selected_factor"] = selected_factor
+            ic_results = compute_rank_ic(signal_values, forward_returns)
+        ic_results["selected_signal"] = selected_signal
         return ic_results
 
     def is_acceptable(ic_results: dict) -> bool:
@@ -282,14 +282,14 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
             return False
         return True
 
-    async def generate_feedback(factor_json: str, ic_results: dict, iteration: int) -> str:
+    async def generate_feedback(signal_json: str, ic_results: dict, iteration: int) -> str:
         """
         Ask the advisor LLM for compact, actionable feedback.
 
-        The full factor JSON is sent so the advisor sees every field
+        The full signal JSON is sent so the advisor sees every field
         (name, formula, meaning, category, lookbacks). Output is constrained
         to a few short bullets so it fits comfortably in the next iteration's
-        factor-generator prompt.
+        signal-generator prompt.
         """
         mean_ic = ic_results.get("mean_ic")
         p_value = ic_results.get("p_value")
@@ -302,8 +302,8 @@ async def factor_optimizer_function(config: FactorOptimizerConfig, builder: Buil
 - Mean IC: {mean_ic_str} (target >= {config.ic_threshold})
 - P-value: {p_value_str} (target <= {config.p_value_threshold})
 {error_line}
-FACTORS TRIED:
-{factor_json}
+SIGNALS TRIED:
+{signal_json}
 
 Output exactly 3 bullet points, max 15 words each, suggesting concrete
 changes (different operator, different lookback, different data field).
@@ -315,7 +315,7 @@ No prose, no preamble. Format:
         response = await advisor_llm.ainvoke(
             [
                 SystemMessage(content=NO_THINK_INSTRUCTION),
-                SystemMessage(content="You are a senior quant providing concise factor optimization advice."),
+                SystemMessage(content="You are a senior quant providing concise signal optimization advice."),
                 HumanMessage(content=prompt),
             ]
         )
@@ -329,12 +329,12 @@ No prose, no preamble. Format:
 
     async def run_optimization(request: str) -> str:
         """
-        Run the closed-loop factor mining optimization.
+        Run the closed-loop signal discovery optimization.
 
         Args:
-            request: Either a plain factor request string (e.g.,
-                ``"momentum factors"``) or a JSON object with the shape
-                ``{"request": "momentum factors", "seed_feedback": "..."}``
+            request: Either a plain signal request string (e.g.,
+                ``"momentum signals"``) or a JSON object with the shape
+                ``{"request": "momentum signals", "seed_feedback": "..."}``
                 to resume from a prior run's ``last_feedback``.
 
                 The JSON form is opt-in so the CLI-friendly single-string
@@ -352,19 +352,19 @@ No prose, no preamble. Format:
         for iteration in range(1, config.max_iterations + 1):
             logger.info(f"=== Iteration {iteration}/{config.max_iterations} ===")
 
-            logger.info("Generating factors...")
-            factor_json = await generate_factor_json(
-                factor_llm, request_text, config.num_factors, operators, feedback
+            logger.info("Generating signals...")
+            signal_json = await generate_signal_json(
+                signal_llm, request_text, config.num_signals, operators, feedback
             )
 
             logger.info("Generating code...")
             codegen_errors: list[str] = []
-            factor_code = await generate_factor_code(
-                code_llm, factor_json, operators, errors_out=codegen_errors
+            signal_code = await generate_signal_code(
+                code_llm, signal_json, operators, errors_out=codegen_errors
             )
 
             logger.info("Evaluating IC...")
-            ic_results = evaluate_ic(factor_code)
+            ic_results = evaluate_ic(signal_code)
             mean_ic = ic_results.get("mean_ic")
 
             if mean_ic is not None:
@@ -372,16 +372,16 @@ No prose, no preamble. Format:
                 if best_ic is None or abs(mean_ic) > abs(best_ic):
                     best_ic = mean_ic
                     best_result = {
-                        "factor_json": factor_json,
-                        "factor_code": factor_code,
+                        "signal_json": signal_json,
+                        "signal_code": signal_code,
                         "ic_results": ic_results,
                         "iteration": iteration,
                     }
 
             if is_acceptable(ic_results):
-                logger.info("Factor accepted!")
+                logger.info("Signal accepted!")
                 saved_path = (
-                    save_factor_results(factor_json, factor_code, ic_results, iteration)
+                    save_signal_results(signal_json, signal_code, ic_results, iteration)
                     if config.save_results
                     else None
                 )
@@ -390,20 +390,20 @@ No prose, no preamble. Format:
                     request=request_text,
                     iteration=iteration,
                     total_iterations=config.max_iterations,
-                    factor_json=factor_json,
+                    signal_json=signal_json,
                     ic_results=ic_results,
                     saved_path=saved_path,
                     config=config,
                     last_feedback=feedback,
                 )
 
-            # When every factor was rejected at parse/arity time the advisor
+            # When every signal was rejected at parse/arity time the advisor
             # has nothing to say (no IC numbers exist). Skip the LLM round-trip
             # and feed the structural errors directly to the next iteration so
             # the generator can self-correct.
             if codegen_errors and mean_ic is None:
                 advice = (
-                    "Your previous factors were ALL REJECTED before evaluation. "
+                    "Your previous signals were ALL REJECTED before evaluation. "
                     "Re-read each operator signature carefully and match the argument "
                     "count exactly. Specific failures:\n"
                     + "\n".join(f"- {e}" for e in codegen_errors)
@@ -411,7 +411,7 @@ No prose, no preamble. Format:
                 logger.info(f"Skipping advisor: {len(codegen_errors)} structural errors will drive next iteration")
             else:
                 logger.info("Generating optimization feedback...")
-                advice = await generate_feedback(factor_json, ic_results, iteration)
+                advice = await generate_feedback(signal_json, ic_results, iteration)
 
             # Compose the feedback shown to the next iteration: anchor it on
             # the best-known result so the model has a concrete target to
@@ -420,9 +420,9 @@ No prose, no preamble. Format:
 
         if best_result:
             saved_path = (
-                save_factor_results(
-                    best_result["factor_json"],
-                    best_result["factor_code"],
+                save_signal_results(
+                    best_result["signal_json"],
+                    best_result["signal_code"],
                     best_result["ic_results"],
                     best_result["iteration"],
                 )
@@ -434,7 +434,7 @@ No prose, no preamble. Format:
                 request=request_text,
                 iteration=best_result["iteration"],
                 total_iterations=config.max_iterations,
-                factor_json=best_result["factor_json"],
+                signal_json=best_result["signal_json"],
                 ic_results=best_result["ic_results"],
                 saved_path=saved_path,
                 config=config,
@@ -446,7 +446,7 @@ No prose, no preamble. Format:
             request=request_text,
             iteration=0,
             total_iterations=config.max_iterations,
-            factor_json="",
+            signal_json="",
             ic_results={},
             saved_path=None,
             config=config,
@@ -455,5 +455,5 @@ No prose, no preamble. Format:
 
     yield FunctionInfo.from_fn(
         run_optimization,
-        description="Run factor mining optimization loop: generate -> code -> evaluate -> feedback.",
+        description="Run signal discovery optimization loop: generate -> code -> evaluate -> feedback.",
     )

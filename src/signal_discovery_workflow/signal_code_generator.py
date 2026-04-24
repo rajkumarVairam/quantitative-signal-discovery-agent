@@ -14,9 +14,9 @@
 # limitations under the License.
 
 """
-Factor Code Generator Agent.
+Signal Code Generator Agent.
 
-Takes the JSON output from ``factor_generator`` and an LLM, and produces a
+Takes the JSON output from ``signal_generator`` and an LLM, and produces a
 self-contained, executable Python module:
 
     import pandas as pd
@@ -27,12 +27,12 @@ self-contained, executable Python module:
     def TS_Return(...): ...
     ...
 
-    # factor functions written by the LLM, one per JSON entry
-    def factor_xxx(Close, Volume, ...) -> pd.DataFrame:
+    # signal functions written by the LLM, one per JSON entry
+    def signal_xxx(Close, Volume, ...) -> pd.DataFrame:
         \"\"\"<meaning>\"\"\"
         return <formula>
 
-The LLM only writes the factor function bodies. Operator code and imports
+The LLM only writes the signal function bodies. Operator code and imports
 are added deterministically so the output is self-contained and portable.
 """
 
@@ -50,13 +50,6 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
 
-from .factor_evaluator import get_operator_arities
-from .factor_generator import (
-    VALID_DATA_FIELDS,
-    get_operator_code_map,
-    load_calculator_operators,
-    load_output_template,
-)
 from .llm_utils import (
     NO_THINK_INSTRUCTION,
     extract_json_array,
@@ -65,19 +58,26 @@ from .llm_utils import (
     normalize_operator_names,
     sanitize_unicode,
 )
+from .signal_evaluator import get_operator_arities
+from .signal_generator import (
+    VALID_DATA_FIELDS,
+    get_operator_code_map,
+    load_calculator_operators,
+    load_output_template,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _python_function_name(name: str | None, index: int) -> str:
-    """Convert a factor's display name into a valid ``factor_*`` Python identifier."""
-    base = re.sub(r"[^A-Za-z0-9_]+", "_", (name or f"factor_{index + 1}").lower()).strip("_")
+    """Convert a signal's display name into a valid ``signal_*`` Python identifier."""
+    base = re.sub(r"[^A-Za-z0-9_]+", "_", (name or f"signal_{index + 1}").lower()).strip("_")
     if not base:
-        base = f"factor_{index + 1}"
-    if not base.startswith("factor"):
-        base = f"factor_{base}"
+        base = f"signal_{index + 1}"
+    if not base.startswith("signal"):
+        base = f"signal_{base}"
     if base[0].isdigit():
-        base = f"factor_{base}"
+        base = f"signal_{base}"
     return base
 
 
@@ -117,18 +117,18 @@ def _check_formula_arity(formula: str, arities: dict[str, tuple[int, int]]) -> s
     return None
 
 
-def parse_factor_specs_with_errors(
-    factor_json: str, valid_operators: Iterable[str]
+def parse_signal_specs_with_errors(
+    signal_json: str, valid_operators: Iterable[str]
 ) -> tuple[list[dict], list[str]]:
     """
-    Parse the factor generator's JSON into normalized specs and a list of
-    skip messages explaining why any factors were rejected.
+    Parse the signal generator's JSON into normalized specs and a list of
+    skip messages explaining why any signals were rejected.
 
     Each spec contains ``name``, ``formula``, ``fields``, ``doc``. Skip messages
     are short strings like ``"#0 (Momentum: Rank expects 1 arg(s), got 2)"``
     suitable for embedding directly into the next iteration's feedback prompt.
     """
-    sanitized = sanitize_unicode(factor_json)
+    sanitized = sanitize_unicode(signal_json)
     try:
         data = json.loads(sanitized)
     except json.JSONDecodeError:
@@ -137,11 +137,11 @@ def parse_factor_specs_with_errors(
         data = [data] if isinstance(data, dict) else []
 
     if not data:
-        cleaned = factor_json.strip().replace("\n", " ")
+        cleaned = signal_json.strip().replace("\n", " ")
         head = cleaned[:300]
         tail = cleaned[-300:] if len(cleaned) > 600 else ""
         logger.warning(
-            f"Could not parse factor generator output as JSON ({len(factor_json)} chars). "
+            f"Could not parse signal generator output as JSON ({len(signal_json)} chars). "
             f"Head: {head!r}" + (f" ... Tail: {tail!r}" if tail else "")
         )
         return [], ["generator output was not valid JSON"]
@@ -154,52 +154,52 @@ def parse_factor_specs_with_errors(
 
     specs: list[dict] = []
     skipped: list[str] = []
-    for idx, factor in enumerate(data):
-        if not isinstance(factor, dict):
+    for idx, signal in enumerate(data):
+        if not isinstance(signal, dict):
             skipped.append(f"#{idx} (not a dict)")
             continue
 
-        missing = [f for f in required_fields if not factor.get(f)]
+        missing = [f for f in required_fields if not signal.get(f)]
         if missing:
-            skipped.append(f"#{idx} ({factor.get('name', '?')}: missing {missing})")
+            skipped.append(f"#{idx} ({signal.get('name', '?')}: missing {missing})")
             continue
 
         formula = normalize_operator_names(
-            sanitize_unicode(factor["formula"]).strip(), valid_operators
+            sanitize_unicode(signal["formula"]).strip(), valid_operators
         )
 
         arity_error = _check_formula_arity(formula, arities)
         if arity_error:
-            skipped.append(f"#{idx} ({factor.get('name', '?')}: {arity_error})")
+            skipped.append(f"#{idx} ({signal.get('name', '?')}: {arity_error})")
             continue
 
-        fields = factor.get("data_fields_used") or _infer_fields_from_formula(formula)
+        fields = signal.get("data_fields_used") or _infer_fields_from_formula(formula)
         fields = [f for f in fields if f in VALID_DATA_FIELDS]
         if not fields:
             fields = ["Close"]
 
         specs.append(
             {
-                "name": _python_function_name(factor.get("name"), idx),
+                "name": _python_function_name(signal.get("name"), idx),
                 "formula": formula,
                 "fields": fields,
-                "doc": factor.get("meaning") or factor.get("name", "Factor calculation"),
+                "doc": signal.get("meaning") or signal.get("name", "Signal calculation"),
             }
         )
 
     if skipped:
-        logger.warning(f"Skipped {len(skipped)} malformed factor(s): {skipped}")
+        logger.warning(f"Skipped {len(skipped)} malformed signal(s): {skipped}")
     return specs, skipped
 
 
-def parse_factor_specs(factor_json: str, valid_operators: Iterable[str]) -> list[dict]:
+def parse_signal_specs(signal_json: str, valid_operators: Iterable[str]) -> list[dict]:
     """
-    Parse the factor generator's JSON into a list of normalized specs.
+    Parse the signal generator's JSON into a list of normalized specs.
 
-    Backwards-compatible wrapper around :func:`parse_factor_specs_with_errors`
+    Backwards-compatible wrapper around :func:`parse_signal_specs_with_errors`
     for callers that only care about the specs.
     """
-    specs, _ = parse_factor_specs_with_errors(factor_json, valid_operators)
+    specs, _ = parse_signal_specs_with_errors(signal_json, valid_operators)
     return specs
 
 
@@ -208,7 +208,7 @@ def collect_operator_code(specs: list[dict], code_map: dict[str, str]) -> str:
     Concatenate the Python source for every operator referenced by ``specs``.
 
     The returned string is meant to be inlined into the generated module so
-    that the factor functions can call ``Div(...)``, ``TS_Mean(...)``, etc.
+    that the signal functions can call ``Div(...)``, ``TS_Mean(...)``, etc.
     """
     used: set[str] = set()
     for spec in specs:
@@ -220,7 +220,7 @@ def collect_operator_code(specs: list[dict], code_map: dict[str, str]) -> str:
 def _build_code_prompt(specs: list[dict], operator_signatures: str) -> tuple[str, str]:
     """Return (system, user) prompt strings for the code generator LLM."""
     system = (
-        "You translate factor specifications into Python functions. "
+        "You translate signal specifications into Python functions. "
         "Output ONLY the function definitions in a single ```python block. "
         "Use the exact operator names from the formula verbatim (case-sensitive). "
         "Do NOT redefine operators. Do NOT add helper functions. Do NOT add imports."
@@ -235,11 +235,11 @@ def _build_code_prompt(specs: list[dict], operator_signatures: str) -> tuple[str
 Generate one function per spec below. The function body must be `return <formula>`.
 
 EXAMPLE INPUT:
-1. name=factor_momentum, fields=['Close'], formula=TS_Return(Close, 20)
+1. name=signal_momentum, fields=['Close'], formula=TS_Return(Close, 20)
 
 EXAMPLE OUTPUT:
 ```python
-def factor_momentum(Close: pd.DataFrame) -> pd.DataFrame:
+def signal_momentum(Close: pd.DataFrame) -> pd.DataFrame:
     \"\"\"20-day momentum\"\"\"
     return TS_Return(Close, 20)
 ```
@@ -249,15 +249,15 @@ SPECS:
     return system, user
 
 
-async def generate_factor_function_code(
+async def generate_signal_function_code(
     llm,
     specs: list[dict],
     operators: list[dict],
 ) -> str:
     """
-    Use the LLM to write factor function bodies for the given specs.
+    Use the LLM to write signal function bodies for the given specs.
 
-    The LLM only emits ``def factor_xxx(...): return ...`` blocks; the caller
+    The LLM only emits ``def signal_xxx(...): return ...`` blocks; the caller
     is responsible for prepending imports and operator definitions.
     """
     sig_map = {op["name"]: op.get("signature", op["name"]) for op in operators}
@@ -283,21 +283,21 @@ async def generate_factor_function_code(
     return normalize_operator_names(sanitize_unicode(code), valid_operator_names)
 
 
-def assemble_module(operator_code: str, factor_function_code: str) -> str:
-    """Wrap operator + factor function code into a self-contained Python module."""
-    return f"import pandas as pd\nimport numpy as np\n\n{operator_code}\n\n{factor_function_code}\n"
+def assemble_module(operator_code: str, signal_function_code: str) -> str:
+    """Wrap operator + signal function code into a self-contained Python module."""
+    return f"import pandas as pd\nimport numpy as np\n\n{operator_code}\n\n{signal_function_code}\n"
 
 
-async def generate_factor_code(
+async def generate_signal_code(
     llm,
-    factor_json: str,
+    signal_json: str,
     operators: list[dict],
     errors_out: list[str] | None = None,
 ) -> str:
     """
-    End-to-end: factor JSON -> self-contained executable Python module.
+    End-to-end: signal JSON -> self-contained executable Python module.
 
-    1. Parse the factor JSON into normalized specs.
+    1. Parse the signal JSON into normalized specs.
     2. Ask the LLM to write a function body for each spec.
     3. Inline the operator definitions and imports.
 
@@ -306,50 +306,50 @@ async def generate_factor_code(
     next iteration's feedback prompt.
     """
     code_map = get_operator_code_map(operators)
-    specs, parse_errors = parse_factor_specs_with_errors(factor_json, code_map.keys())
+    specs, parse_errors = parse_signal_specs_with_errors(signal_json, code_map.keys())
     if errors_out is not None:
         errors_out.extend(parse_errors)
 
     if not specs:
-        logger.warning("No usable factors found in generator output")
-        return assemble_module("", "# No valid factors generated\n")
+        logger.warning("No usable signals found in generator output")
+        return assemble_module("", "# No valid signals generated\n")
 
-    function_code = await generate_factor_function_code(llm, specs, operators)
+    function_code = await generate_signal_function_code(llm, specs, operators)
     operator_code = collect_operator_code(specs, code_map)
     return assemble_module(operator_code, function_code)
 
 
-class FactorCodeGeneratorConfig(FunctionBaseConfig, name="factor_code_generator"):
-    """Generate executable Python code from factor JSON descriptions."""
+class SignalCodeGeneratorConfig(FunctionBaseConfig, name="signal_code_generator"):
+    """Generate executable Python code from signal JSON descriptions."""
 
     llm_name: str | None = Field(default=None, description="LLM to use for code generation.")
 
 
-@register_function(config_type=FactorCodeGeneratorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def factor_code_generator_function(config: FactorCodeGeneratorConfig, builder: Builder):
-    """NAT function wrapper around ``generate_factor_code``."""
+@register_function(config_type=SignalCodeGeneratorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def signal_code_generator_function(config: SignalCodeGeneratorConfig, builder: Builder):
+    """NAT function wrapper around ``generate_signal_code``."""
     operators = load_calculator_operators()
 
     if not config.llm_name:
-        raise ValueError("factor_code_generator requires an llm_name to be configured.")
+        raise ValueError("signal_code_generator requires an llm_name to be configured.")
     llm = await builder.get_llm(llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
-    async def generate(factor_json: str) -> str:
-        """Generate executable Python code from factor JSON.
+    async def generate(signal_json: str) -> str:
+        """Generate executable Python code from signal JSON.
 
         Args:
-            factor_json: The JSON array produced by ``factor_generator``.
+            signal_json: The JSON array produced by ``signal_generator``.
 
         Returns:
-            A self-contained Python module (imports + operator defs + factor
+            A self-contained Python module (imports + operator defs + signal
             function defs) ready to be ``exec``'d.
         """
-        return await generate_factor_code(llm, factor_json, operators)
+        return await generate_signal_code(llm, signal_json, operators)
 
     yield FunctionInfo.from_fn(
         generate,
         description=(
-            "Generate executable Python code from factor_generator JSON output. "
-            "Returns a self-contained module with imports, operator defs, and factor functions."
+            "Generate executable Python code from signal_generator JSON output. "
+            "Returns a self-contained module with imports, operator defs, and signal functions."
         ),
     )

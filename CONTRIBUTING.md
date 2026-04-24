@@ -1,6 +1,6 @@
-# Contributing to NVIDIA Quant Factor Mining Agent developer example
+# Contributing to NVIDIA Quantitative Signal Discovery Agent developer example
 
-Thank you for your interest in contributing to Quant Factor Mining Agent developer example! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Quantitative Signal Discovery Agent developer example! This document provides guidelines and instructions for contributing to the project.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ We are committed to providing a welcoming and inclusive environment for all cont
 
 ## Ways to Contribute
 
-There are many ways to contribute to Quant Factor Mining Agent developer example:
+There are many ways to contribute to Quantitative Signal Discovery Agent developer example:
 
 - **Report bugs**: If you find a bug, please open an issue with detailed information
 - **Suggest enhancements**: Have an idea for a new feature? Let us know!
@@ -39,8 +39,8 @@ There are many ways to contribute to Quant Factor Mining Agent developer example
 1. **Fork and Clone the Repository**
 
    ```bash
-   git clone https://github.com/your-username/quant-factor-mining-agent.git
-   cd quant-factor-mining-agent
+   git clone https://github.com/your-username/quantitative-signal-discovery-agent.git
+   cd quantitative-signal-discovery-agent
    ```
 
 2. **Install uv (if not already installed)**
@@ -65,7 +65,7 @@ There are many ways to contribute to Quant Factor Mining Agent developer example
 4. **Download Data**
 
    ```bash
-   python -m factor_mining_workflow.download_data
+   python -m signal_discovery_workflow.download_data
    ```
 
 ## Coding Standards
@@ -101,16 +101,16 @@ isort .
 Example:
 
 ```python
-def evaluate_factor(
-    factor_values: pd.DataFrame,
+def evaluate_signal(
+    signal_values: pd.DataFrame,
     forward_returns: pd.DataFrame,
     ic_threshold: float = 0.02
 ) -> dict:
     """
-    Evaluate a factor's predictive power using Rank IC.
+    Evaluate a signal's predictive power using Rank IC.
 
     Args:
-        factor_values: Factor values as a DataFrame (dates x stocks)
+        signal_values: Signal values as a DataFrame (dates x stocks)
         forward_returns: Forward returns as a DataFrame (dates x stocks)
         ic_threshold: Minimum absolute IC value for acceptance
 
@@ -246,7 +246,7 @@ What actually happened.
 **Environment**
 - OS: [e.g., Ubuntu 22.04]
 - Python: [e.g., 3.12]
-- Quant Factor Mining Agent version: [e.g., 0.1.0]
+- Quantitative Signal Discovery Agent version: [e.g., 0.1.0]
 
 **Additional Context**
 Any other relevant information.

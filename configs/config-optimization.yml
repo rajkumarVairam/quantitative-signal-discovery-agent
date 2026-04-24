@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Factor Mining Workflow: generate -> code -> evaluate -> feedback loop.
+# Signal Discovery Workflow: generate -> code -> evaluate -> feedback loop.
 # Run `phoenix serve` in a separate terminal to view traces at localhost:6006.
 
 general:
@@ -22,10 +22,10 @@ general:
       phoenix:
         _type: phoenix
         endpoint: http://localhost:6006/v1/traces
-        project: factor-mining-workflow
+        project: signal-discovery-workflow
 
 llms:
-  factor_generator:
+  signal_generator:
     _type: nim
     model_name: nvidia/nemotron-3-nano-30b-a3b
     base_url: "https://integrate.api.nvidia.com/v1/"
@@ -47,13 +47,13 @@ llms:
     max_tokens: 1000
 
 workflow:
-  _type: factor_optimizer
-  factor_generator_llm: factor_generator
+  _type: signal_optimizer
+  signal_generator_llm: signal_generator
   code_generator_llm: code_generator
   optimization_advisor_llm: optimization_advisor
   ic_threshold: 0.02
   p_value_threshold: 0.05
   max_iterations: 3
-  num_factors: 2
+  num_signals: 2
   forward_periods: 5
   save_results: true

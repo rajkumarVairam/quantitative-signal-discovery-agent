@@ -1,16 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for factor_evaluator pure utility functions."""
+"""Tests for signal_evaluator pure utility functions."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from factor_mining_workflow.factor_evaluator import (
+from signal_discovery_workflow.signal_evaluator import (
     compute_forward_returns,
     compute_rank_ic,
-    execute_factor_code,
+    execute_signal_code,
     extract_code_from_response,
 )
 
@@ -109,25 +109,25 @@ class TestComputeRankIC:
             assert key in result
 
     def test_perfect_positive_ic(self):
-        """Factor = forward returns → IC close to 1."""
+        """Signal = forward returns → IC close to 1."""
         _, _, returns = self._make_aligned()
         result = compute_rank_ic(returns, returns)
         assert result["mean_ic"] is not None
         assert result["mean_ic"] > 0.9
 
     def test_perfect_negative_ic(self):
-        """Factor = −forward returns → IC close to −1."""
+        """Signal = −forward returns → IC close to −1."""
         _, _, returns = self._make_aligned()
         result = compute_rank_ic(-returns, returns)
         assert result["mean_ic"] is not None
         assert result["mean_ic"] < -0.9
 
-    def test_random_factor_ic_near_zero(self):
-        """Uncorrelated factor and returns: mean IC should be near 0."""
+    def test_random_signal_ic_near_zero(self):
+        """Uncorrelated signal and returns: mean IC should be near 0."""
         dates, tickers, returns = self._make_aligned(n_dates=120, seed=99)
         rng = np.random.default_rng(7)
-        factor = pd.DataFrame(rng.standard_normal(returns.shape), index=dates, columns=tickers)
-        result = compute_rank_ic(factor, returns)
+        signal = pd.DataFrame(rng.standard_normal(returns.shape), index=dates, columns=tickers)
+        result = compute_rank_ic(signal, returns)
         assert result["mean_ic"] is not None
         assert abs(result["mean_ic"]) < 0.15
 
@@ -137,9 +137,9 @@ class TestComputeRankIC:
         dates_b = pd.date_range("2022-01-01", periods=30, freq="B")
         tickers = [f"S{i}" for i in range(20)]
         rng = np.random.default_rng(0)
-        factor = pd.DataFrame(rng.standard_normal((30, 20)), index=dates_a, columns=tickers)
+        signal = pd.DataFrame(rng.standard_normal((30, 20)), index=dates_a, columns=tickers)
         returns = pd.DataFrame(rng.standard_normal((30, 20)), index=dates_b, columns=tickers)
-        result = compute_rank_ic(factor, returns)
+        result = compute_rank_ic(signal, returns)
         assert result["num_periods"] == 0
         assert result["mean_ic"] is None
 
@@ -148,23 +148,23 @@ class TestComputeRankIC:
         dates = pd.date_range("2020-01-01", periods=30, freq="B")
         tickers = [f"S{i}" for i in range(5)]  # Only 5 stocks
         rng = np.random.default_rng(0)
-        factor = pd.DataFrame(rng.standard_normal((30, 5)), index=dates, columns=tickers)
+        signal = pd.DataFrame(rng.standard_normal((30, 5)), index=dates, columns=tickers)
         returns = pd.DataFrame(rng.standard_normal((30, 5)), index=dates, columns=tickers)
-        result = compute_rank_ic(factor, returns)
+        result = compute_rank_ic(signal, returns)
         assert result["num_periods"] == 0
 
-    def test_constant_factor_skipped(self):
-        """Constant factor values have zero variance → skipped each date."""
+    def test_constant_signal_skipped(self):
+        """Constant signal values have zero variance → skipped each date."""
         dates = pd.date_range("2020-01-01", periods=30, freq="B")
         tickers = [f"S{i}" for i in range(20)]
         rng = np.random.default_rng(0)
-        factor = pd.DataFrame(1.0, index=dates, columns=tickers)  # All constant
+        signal = pd.DataFrame(1.0, index=dates, columns=tickers)  # All constant
         returns = pd.DataFrame(rng.standard_normal((30, 20)), index=dates, columns=tickers)
-        result = compute_rank_ic(factor, returns)
+        result = compute_rank_ic(signal, returns)
         assert result["num_periods"] == 0
 
     def test_positive_ic_ratio(self):
-        """IC for a positively predictive factor should mostly be positive."""
+        """IC for a positively predictive signal should mostly be positive."""
         _, _, returns = self._make_aligned()
         result = compute_rank_ic(returns, returns)
         assert result.get("positive_ic_ratio", 0) > 0.9
@@ -176,10 +176,10 @@ class TestComputeRankIC:
         assert set(percentiles.keys()) == {"5th", "25th", "50th", "75th", "95th"}
 
     def test_partial_stock_overlap(self):
-        """Only a subset of stocks shared between factor and returns."""
+        """Only a subset of stocks shared between signal and returns."""
         dates = pd.date_range("2020-01-01", periods=40, freq="B")
         rng = np.random.default_rng(0)
-        factor = pd.DataFrame(
+        signal = pd.DataFrame(
             rng.standard_normal((40, 25)),
             index=dates,
             columns=[f"S{i}" for i in range(25)],
@@ -189,7 +189,7 @@ class TestComputeRankIC:
             index=dates,
             columns=[f"S{i}" for i in range(5, 30)],  # Overlap on S05–S24 (20 stocks)
         )
-        result = compute_rank_ic(factor, returns)
+        result = compute_rank_ic(signal, returns)
         assert result["num_periods"] > 0
 
 
@@ -225,91 +225,91 @@ class TestExtractCodeFromResponse:
 
 
 # ---------------------------------------------------------------------------
-# execute_factor_code
+# execute_signal_code
 # ---------------------------------------------------------------------------
 
-class TestExecuteFactorCode:
-    def test_basic_momentum_factor(self, stock_data):
+class TestExecuteSignalCode:
+    def test_basic_momentum_signal(self, stock_data):
         code = (
             "import pandas as pd\n"
             "import numpy as np\n\n"
-            "def factor_momentum(Close: pd.DataFrame) -> pd.DataFrame:\n"
+            "def signal_momentum(Close: pd.DataFrame) -> pd.DataFrame:\n"
             "    return Close.pct_change(5)\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is not None
         df, name = result
         assert isinstance(df, pd.DataFrame)
-        assert name == "factor_momentum"
+        assert name == "signal_momentum"
 
     def test_returns_dataframe_not_series(self, stock_data):
         code = (
             "import pandas as pd\n\n"
-            "def factor_mean(Close: pd.DataFrame) -> pd.DataFrame:\n"
+            "def signal_mean(Close: pd.DataFrame) -> pd.DataFrame:\n"
             "    return Close.pct_change(3)\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is not None
         df, _ = result
         assert isinstance(df, pd.DataFrame)
 
-    def test_no_factor_functions_returns_none(self, stock_data):
-        """Code with only imports and no callable factors → None."""
+    def test_no_signal_functions_returns_none(self, stock_data):
+        """Code with only imports and no callable signals → None."""
         code = "import pandas as pd\nimport numpy as np\n"
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is None
 
     def test_syntax_error_returns_none(self, stock_data):
-        code = "def factor_broken(Close):\n    return Close.pct_change(5\n"
-        result = execute_factor_code(code, stock_data)
+        code = "def signal_broken(Close):\n    return Close.pct_change(5\n"
+        result = execute_signal_code(code, stock_data)
         assert result is None
 
     def test_runtime_error_returns_none(self, stock_data):
-        """Factor function that raises at call time → None."""
+        """Signal function that raises at call time → None."""
         code = (
-            "def factor_crash(Close):\n"
+            "def signal_crash(Close):\n"
             "    raise ValueError('intentional')\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is None
 
-    def test_multiple_factors_returns_best(self, stock_data):
-        """When two factors are provided, the one with higher |IC| is selected."""
+    def test_multiple_signals_returns_best(self, stock_data):
+        """When two signals are provided, the one with higher |IC| is selected."""
         code = (
             "import pandas as pd\n\n"
-            "def factor_alpha(Close):\n"
+            "def signal_alpha(Close):\n"
             "    return Close.pct_change(5)\n\n"
-            "def factor_beta(Close):\n"
+            "def signal_beta(Close):\n"
             "    return Close.pct_change(10)\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is not None
         _, name = result
-        assert name in ("factor_alpha", "factor_beta")
+        assert name in ("signal_alpha", "signal_beta")
 
-    def test_operator_names_not_treated_as_factors(self, stock_data):
-        """Known operator names like TS_Return should not be returned as the factor."""
+    def test_operator_names_not_treated_as_signals(self, stock_data):
+        """Known operator names like TS_Return should not be returned as the signal."""
         code = (
             "import pandas as pd\n\n"
             "def TS_Return(x, d):\n"
             "    return x.pct_change(d)\n\n"
-            "def factor_real(Close):\n"
+            "def signal_real(Close):\n"
             "    return TS_Return(Close, 5)\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is not None
         _, name = result
-        assert name == "factor_real"
+        assert name == "signal_real"
 
     def test_uses_volume_data(self, stock_data):
-        """Factor using Volume parameter should be called with volume data."""
+        """Signal using Volume parameter should be called with volume data."""
         code = (
             "import pandas as pd\n\n"
-            "def factor_volume_change(Volume):\n"
+            "def signal_volume_change(Volume):\n"
             "    return Volume.pct_change(5)\n"
         )
-        result = execute_factor_code(code, stock_data)
+        result = execute_signal_code(code, stock_data)
         assert result is not None
         df, name = result
-        assert name == "factor_volume_change"
+        assert name == "signal_volume_change"
         assert df.shape == stock_data["Volume"].shape

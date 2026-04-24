@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# PR-level continuous integration for the Quant Factor Mining Agent.
+# PR-level continuous integration for the Quantitative Signal Discovery Agent.
 #
 # Runs on every pull request targeting main, plus on direct pushes to main:
 #   1. lint  - fast ruff check (style, unused imports)

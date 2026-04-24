@@ -1,19 +1,19 @@
-# Quant Factor Mining Agent developer example
+# Quantitative Signal Discovery Agent developer example
 
-An end-to-end factor mining workflow for quantitative finance using NVIDIA NeMo Agent Toolkit. This workflow demonstrates how to leverage LLMs to automatically generate, code, and evaluate alpha factors.
+An end-to-end signal discovery workflow for quantitative finance using NVIDIA NeMo Agent Toolkit. This workflow demonstrates how to leverage LLMs to automatically generate, code, and evaluate alpha signals.
 
 ## Overview
 
-Factor mining is the process of discovering quantitative signals (factors) that have predictive power for future stock returns. This workflow automates the traditional labor-intensive process using LLMs.
+Signal discovery is the process of finding quantitative signals — also known as alpha signals — that have predictive power for future stock returns. This workflow automates the traditional labor-intensive process using LLMs.
 
 ### Workflow Architecture
 
 ![Workflow Architecture](notebooks/images/workflow-architecture.png)
 
 The workflow uses a **closed-loop optimization** approach:
-1. Generate factor ideas using an LLM
+1. Generate signal ideas using an LLM
 2. Convert ideas to executable Python code
-3. Evaluate the factor's predictive power (Rank IC)
+3. Evaluate the signal's predictive power (Rank IC)
 4. If IC meets threshold → Accept and save
 5. If IC is poor → Generate optimization advice and retry
 
@@ -47,13 +47,13 @@ uv pip install -e .
 The workflow requires S&P 500 price-volume data (Open, Close, High, Low, Volume). Use the included script to download fresh data via [yfinance](https://github.com/ranaroussi/yfinance):
 
 ```bash
-uv run python -m factor_mining_workflow.download_data
+uv run python -m signal_discovery_workflow.download_data
 ```
 
 You can customize the date range:
 
 ```bash
-uv run python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2025-12-31
+uv run python -m signal_discovery_workflow.download_data --start 2015-01-01 --end 2025-12-31
 ```
 
 > **Disclaimer:** Each user is responsible for checking the content of datasets and the applicable licenses and determining if suitable for the intended use.
@@ -64,14 +64,14 @@ This workflow can be deployed in three ways:
 
 ### Deploy on Brev
 
-Spin up a one-click GPU instance on [brev.nvidia.com](https://brev.nvidia.com/) and open [`brev/launchable-setup.ipynb`](brev/launchable-setup.ipynb). It clones the repo, installs `uv`, syncs dependencies, registers a Jupyter kernel, and downloads the S&P 500 dataset. When it finishes, follow the inline link to jump into [`notebooks/factor-mining-workflow.ipynb`](notebooks/factor-mining-workflow.ipynb) and start mining factors.
+Spin up a one-click GPU instance on [brev.nvidia.com](https://brev.nvidia.com/) and open [`brev/launchable-setup.ipynb`](brev/launchable-setup.ipynb). It clones the repo, installs `uv`, syncs dependencies, registers a Jupyter kernel, and downloads the S&P 500 dataset. When it finishes, follow the inline link to jump into [`notebooks/signal-discovery-workflow.ipynb`](notebooks/signal-discovery-workflow.ipynb) and start discovering signals.
 
 ### Option 1: Interactive Notebook Deployment
 
 Best for exploration, experimentation, and learning. The notebook provides step-by-step execution with inline documentation.
 
 ```bash
-uv run jupyter notebook notebooks/factor-mining-workflow.ipynb
+uv run jupyter notebook notebooks/signal-discovery-workflow.ipynb
 ```
 
 The notebook includes:
@@ -88,8 +88,8 @@ Best for production, automation, and scripting. Run the workflow directly from t
 #### Basic Usage
 
 ```bash
-# Run the factor mining workflow
-uv run nat run --config_file configs/config-optimization.yml --input "momentum factors"
+# Run the signal discovery workflow
+uv run nat run --config_file configs/config-optimization.yml --input "momentum signals"
 ```
 
 #### With Phoenix Tracing (Recommended)
@@ -106,7 +106,7 @@ Phoenix will start at http://localhost:6006
 **Terminal 2 - Run the Workflow:**
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
-uv run nat run --config_file configs/config-optimization.yml --input "momentum factors"
+uv run nat run --config_file configs/config-optimization.yml --input "momentum signals"
 ```
 
 View traces at http://localhost:6006 to see:
@@ -115,25 +115,25 @@ View traces at http://localhost:6006 to see:
 - Latency metrics
 - Full execution trace
 
-#### Running Different Factor Types
+#### Running Different Signal Types
 
 ```bash
-# Generate volatility factors
-uv run nat run --config_file configs/config-optimization.yml --input "volatility factors"
+# Generate volatility signals
+uv run nat run --config_file configs/config-optimization.yml --input "volatility signals"
 
-# Generate mean reversion factors
-uv run nat run --config_file configs/config-optimization.yml --input "mean reversion factors"
+# Generate mean reversion signals
+uv run nat run --config_file configs/config-optimization.yml --input "mean reversion signals"
 
-# Generate volume-based factors
-uv run nat run --config_file configs/config-optimization.yml --input "volume price divergence factors"
+# Generate volume-based signals
+uv run nat run --config_file configs/config-optimization.yml --input "volume price divergence signals"
 ```
 
 ## Components
 
 | Component | Description |
 |-----------|-------------|
-| **Factor Agent** | Uses an LLM to generate factor expressions based on price-volume data and operators |
-| **Code Agent** | Wraps each factor formula in a Python function via an LLM, and inlines the required operator implementations from `calculator.json` to produce a self-contained executable module |
+| **Signal Agent** | Uses an LLM to generate signal expressions based on price-volume data and operators |
+| **Code Agent** | Wraps each signal formula in a Python function via an LLM, and inlines the required operator implementations from `calculator.json` to produce a self-contained executable module |
 | **Eval Agent** | Performs backtesting via Rank IC and generates optimization suggestions |
 | **Data Download Script** | Fetches S&P 500 price-volume data from Yahoo Finance via `yfinance` |
 
@@ -147,41 +147,41 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 
 | Parameter | Description |
 |-----------|-------------|
-| `factor_generator_llm` | Reference to the LLM block used for factor ideation (typically higher temperature for creativity) |
+| `signal_generator_llm` | Reference to the LLM block used for signal ideation (typically higher temperature for creativity) |
 | `code_generator_llm` | Reference to the LLM block used for translating formulas into Python (low temperature for determinism) |
 | `optimization_advisor_llm` | Reference to the LLM block used to produce iteration feedback (balanced temperature) |
-| `ic_threshold` | Minimum absolute IC value to accept a factor (e.g., 0.02 = 2%) |
+| `ic_threshold` | Minimum absolute IC value to accept a signal (e.g., 0.02 = 2%) |
 | `p_value_threshold` | Maximum p-value for statistical significance (e.g., 0.05 = 5%) |
 | `max_iterations` | Maximum number of optimization iterations before returning the best result |
-| `num_factors` | Number of factors to generate per iteration |
+| `num_signals` | Number of signals to generate per iteration |
 | `forward_periods` | Number of days for forward return calculation (e.g., 5 = weekly) |
-| `save_results` | Whether to save accepted/best-effort factors to `output/` |
+| `save_results` | Whether to save accepted/best-effort signals to `output/` |
 
-You can use the same model for all three agents (the default), or mix sizes: for example, assign a higher-capability reasoning model like `nvidia/llama-3.3-nemotron-super-49b-v1.5` to the Factor Agent for richer ideation while keeping the smaller `nvidia/nvidia-nemotron-nano-9b-v2` for the Code and Advisor agents — a one-line change in the YAML.
+You can use the same model for all three agents (the default), or mix sizes: for example, assign a higher-capability reasoning model like `nvidia/llama-3.3-nemotron-super-49b-v1.5` to the Signal Agent for richer ideation while keeping the smaller `nvidia/nvidia-nemotron-nano-9b-v2` for the Code and Advisor agents — a one-line change in the YAML.
 
 ## Evaluation Metrics
 
-The workflow uses two key metrics to decide whether to accept or reject a generated factor:
+The workflow uses two key metrics to decide whether to accept or reject a generated signal:
 
 | Metric | Description | Acceptance Criteria |
 |--------|-------------|---------------------|
-| **Mean IC** | Average Spearman rank correlation between factor values and forward returns, computed across all time periods | \|IC\| ≥ `ic_threshold` (default: 0.02) |
+| **Mean IC** | Average Spearman rank correlation between signal values and forward returns, computed across all time periods | \|IC\| ≥ `ic_threshold` (default: 0.02) |
 | **P-value** | Statistical significance of the mean IC being different from zero | ≤ `p_value_threshold` (default: 0.05) |
 
-A factor is accepted when both criteria are met. Otherwise, the Eval Agent generates optimization suggestions and the workflow retries.
+A signal is accepted when both criteria are met. Otherwise, the Eval Agent generates optimization suggestions and the workflow retries.
 
 ## Workflow Result Format
 
-Each run returns a structured JSON result containing the outcome, metrics, the factors that were tried, and (if the loop did not accept on the first iteration) the optimization advice produced for the next attempt. Example:
+Each run returns a structured JSON result containing the outcome, metrics, the signals that were tried, and (if the loop did not accept on the first iteration) the optimization advice produced for the next attempt. Example:
 
 ```json
 {
   "status": "best_effort",
   "headline": "Best-effort result (IC threshold not met)",
-  "request": "momentum factors",
+  "request": "momentum signals",
   "iteration": 2,
   "total_iterations": 3,
-  "selected_factor": "factor_volume_decayed_momentum",
+  "selected_signal": "signal_volume_decayed_momentum",
   "thresholds": {
     "ic_threshold": 0.02,
     "p_value_threshold": 0.05
@@ -195,7 +195,7 @@ Each run returns a structured JSON result containing the outcome, metrics, the f
     "num_periods": 3494,
     "positive_ic_ratio": 0.529
   },
-  "factors": [
+  "signals": [
     {
       "name": "Volume-Decayed Momentum",
       "formula": "Mul(TS_Return(Close, 20), Decay_Linear(Volume, 20))",
@@ -204,7 +204,7 @@ Each run returns a structured JSON result containing the outcome, metrics, the f
       "lookback_periods": [20]
     }
   ],
-  "saved_path": "src/factor_mining_workflow/output/factor_xxx.json",
+  "saved_path": "src/signal_discovery_workflow/output/signal_xxx.json",
   "last_feedback": "- Try TS_Std instead of TS_Var for cleaner volatility signal\n- Use 60-day lookback instead of 20\n- Replace Volume with Close*Volume for dollar-volume weighting"
 }
 ```
@@ -214,10 +214,10 @@ Each run returns a structured JSON result containing the outcome, metrics, the f
 | `status` | `"accepted"`, `"best_effort"`, or `"failed"` |
 | `headline` | Human-readable summary |
 | `iteration` / `total_iterations` | Which iteration produced this result, out of the max allowed |
-| `selected_factor` | Python function name of the factor whose IC was reported (the evaluator picks the best when multiple factors are returned) |
+| `selected_signal` | Python function name of the signal whose IC was reported (the evaluator picks the best when multiple signals are returned) |
 | `metrics` | All non-null IC statistics |
-| `factors` | Compact summary of every factor that was generated |
-| `saved_path` | Where the full factor JSON + code was persisted |
+| `signals` | Compact summary of every signal that was generated |
+| `saved_path` | Where the full signal JSON + code was persisted |
 | `last_feedback` | Optimization advice from the last failed iteration; pass it back to resume the loop |
 
 ### Resuming an Optimization Loop
@@ -228,12 +228,12 @@ The shell snippet below uses `jq` to read `last_feedback` from the prior result 
 
 ```bash
 # First run — best effort, did not converge
-nat run --config_file configs/config-optimization.yml --input "momentum factors" > result1.json
+nat run --config_file configs/config-optimization.yml --input "momentum signals" > result1.json
 
 # Extract last_feedback and resume
 SEED=$(jq -r '.last_feedback' result1.json)
 nat run --config_file configs/config-optimization.yml \
-  --input "$(jq -nc --arg req 'momentum factors' --arg seed "$SEED" \
+  --input "$(jq -nc --arg req 'momentum signals' --arg seed "$SEED" \
               '{request: $req, seed_feedback: $seed}')"
 ```
 
@@ -242,10 +242,10 @@ Or programmatically, passing the same JSON shape as the workflow's input string:
 ```python
 import json
 
-result1 = json.loads(await runner.ainvoke("momentum factors"))
+result1 = json.loads(await runner.ainvoke("momentum signals"))
 
 resume_input = json.dumps({
-    "request": "momentum factors",
+    "request": "momentum signals",
     "seed_feedback": result1["last_feedback"],
 })
 result2 = json.loads(await runner.ainvoke(resume_input))
@@ -267,40 +267,40 @@ The repo also ships a GitHub Actions workflow (`.github/workflows/ci.yml`) that 
 ## Project Structure
 
 ```
-quant-factor-mining-agent/
-├── .github/workflows/ci.yml          # PR-level CI: ruff lint + pytest
+quantitative-signal-discovery-agent/
+├── .github/workflows/ci.yml             # PR-level CI: ruff lint + pytest
 ├── brev/
-│   └── launchable-setup.ipynb        # One-shot environment setup for Brev launchables
+│   └── launchable-setup.ipynb           # One-shot environment setup for Brev launchables
 ├── configs/
-│   └── config-optimization.yml       # Workflow + LLM config (single source of truth)
+│   └── config-optimization.yml          # Workflow + LLM config (single source of truth)
 ├── notebooks/
-│   ├── factor-mining-workflow.ipynb  # Interactive walkthrough
+│   ├── signal-discovery-workflow.ipynb  # Interactive walkthrough
 │   └── images/workflow-architecture.png
-├── pyproject.toml                    # Dependencies, ruff/pytest config, NAT entry point
-├── uv.lock                           # Pinned dependency resolution
+├── pyproject.toml                       # Dependencies, ruff/pytest config, NAT entry point
+├── uv.lock                              # Pinned dependency resolution
 ├── README.md
-├── src/factor_mining_workflow/
+├── src/signal_discovery_workflow/
 │   ├── __init__.py
-│   ├── register.py                            # NAT function registration
-│   ├── factor_generator.py                    # Factor agent: generates JSON factor descriptions
-│   ├── factor_code_generator.py               # Code agent: turns JSON into executable Python
-│   ├── factor_evaluator.py                    # Eval agent: runs factor code, computes Rank IC
-│   ├── factor_mining_optimization_workflow.py # Orchestrator (closed-loop generate/code/eval/feedback)
-│   ├── llm_utils.py                           # Shared LLM-output helpers (parse, sanitize, normalize)
-│   ├── download_data.py                       # Fetches S&P 500 data via yfinance
-│   ├── data/sp500/                            # OHLCV CSVs (gitignored)
-│   ├── output/                                # Saved factor results (gitignored)
+│   ├── register.py                                 # NAT function registration
+│   ├── signal_generator.py                         # Signal agent: generates JSON signal descriptions
+│   ├── signal_code_generator.py                    # Code agent: turns JSON into executable Python
+│   ├── signal_evaluator.py                         # Eval agent: runs signal code, computes Rank IC
+│   ├── signal_discovery_optimization_workflow.py   # Orchestrator (closed-loop generate/code/eval/feedback)
+│   ├── llm_utils.py                                # Shared LLM-output helpers (parse, sanitize, normalize)
+│   ├── download_data.py                            # Fetches S&P 500 data via yfinance
+│   ├── data/sp500/                                 # OHLCV CSVs (gitignored)
+│   ├── output/                                     # Saved signal results (gitignored)
 │   └── template/
-│       ├── calculator.json                    # Operator catalogue (name, signature, code)
-│       └── factor_output_template.json        # JSON schema the factor agent fills in
-└── tests/                                     # pytest suite (86 tests)
+│       ├── calculator.json                         # Operator catalogue (name, signature, code)
+│       └── signal_output_template.json             # JSON schema the signal agent fills in
+└── tests/                                          # pytest suite
 ```
 
 ## Additional Resources
 
 - [NeMo Agent Toolkit Documentation](https://docs.nvidia.com/nemo-agent-toolkit/)
 - [Arize Phoenix Documentation](https://arize.com/docs/phoenix)
-- [NeMo Fine-tuning Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/sft_peft/index.html) — to specialize Nemotron on your factor history
+- [NeMo Fine-tuning Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/sft_peft/index.html) — to specialize Nemotron on your signal history
 
 ## License
 

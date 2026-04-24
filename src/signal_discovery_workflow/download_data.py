@@ -22,12 +22,12 @@ Download S&P 500 price-volume data using yfinance.
 
 Fetches Open, Close, High, Low, and Volume data for current S&P 500
 constituents and saves each field as a separate CSV file compatible
-with the factor mining workflow.
+with the signal discovery workflow.
 
 Usage:
-    python -m factor_mining_workflow.download_data
-    python -m factor_mining_workflow.download_data --start 2015-01-01 --end 2025-12-31
-    python -m factor_mining_workflow.download_data --output /path/to/output
+    python -m signal_discovery_workflow.download_data
+    python -m signal_discovery_workflow.download_data --start 2015-01-01 --end 2025-12-31
+    python -m signal_discovery_workflow.download_data --output /path/to/output
 """
 
 import argparse
@@ -133,7 +133,7 @@ def download_sp500_data(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download S&P 500 price-volume data for factor mining."
+        description="Download S&P 500 price-volume data for signal discovery."
     )
     parser.add_argument(
         "--start", default="2012-01-01", help="Start date (YYYY-MM-DD). Default: 2012-01-01"

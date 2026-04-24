@@ -1,21 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for factor_code_generator pure utility functions."""
+"""Tests for signal_code_generator pure utility functions."""
 
 import json
 
 import pytest
 
-from factor_mining_workflow.factor_code_generator import (
+from signal_discovery_workflow.signal_code_generator import (
     _infer_fields_from_formula,
     _python_function_name,
     assemble_module,
     collect_operator_code,
-    parse_factor_specs,
-    parse_factor_specs_with_errors,
+    parse_signal_specs,
+    parse_signal_specs_with_errors,
 )
-from factor_mining_workflow.factor_generator import (
+from signal_discovery_workflow.signal_generator import (
     get_operator_code_map,
     load_calculator_operators,
 )
@@ -40,7 +40,7 @@ def valid_op_names(code_map):
     return set(code_map.keys())
 
 
-def _factor(name, formula, fields=None, operators_used=None, meaning="test"):
+def _signal(name, formula, fields=None, operators_used=None, meaning="test"):
     return {
         "name": name,
         "formula": formula,
@@ -53,96 +53,96 @@ def _factor(name, formula, fields=None, operators_used=None, meaning="test"):
 
 
 # ---------------------------------------------------------------------------
-# parse_factor_specs
+# parse_signal_specs
 # ---------------------------------------------------------------------------
 
 
-class TestParseFactorSpecs:
-    def test_parses_single_factor(self, valid_op_names):
-        factor_json = json.dumps([_factor("Momentum 20", "TS_Return(Close, 20)")])
-        specs = parse_factor_specs(factor_json, valid_op_names)
+class TestParseSignalSpecs:
+    def test_parses_single_signal(self, valid_op_names):
+        signal_json = json.dumps([_signal("Momentum 20", "TS_Return(Close, 20)")])
+        specs = parse_signal_specs(signal_json, valid_op_names)
         assert len(specs) == 1
-        assert specs[0]["name"].startswith("factor_")
+        assert specs[0]["name"].startswith("signal_")
         assert specs[0]["formula"] == "TS_Return(Close, 20)"
         assert specs[0]["fields"] == ["Close"]
 
-    def test_parses_multiple_factors(self, valid_op_names):
-        factor_json = json.dumps(
+    def test_parses_multiple_signals(self, valid_op_names):
+        signal_json = json.dumps(
             [
-                _factor("F1", "TS_Return(Close, 5)"),
-                _factor("F2", "TS_Std(Close, 10)"),
+                _signal("F1", "TS_Return(Close, 5)"),
+                _signal("F2", "TS_Std(Close, 10)"),
             ]
         )
-        specs = parse_factor_specs(factor_json, valid_op_names)
+        specs = parse_signal_specs(signal_json, valid_op_names)
         assert len(specs) == 2
 
-    def test_skips_factor_with_missing_required_field(self, valid_op_names):
+    def test_skips_signal_with_missing_required_field(self, valid_op_names):
         # 'meaning' is required by template's validation_rules.required_fields
         bad = {"name": "X", "formula": "TS_Return(Close, 5)"}
-        good = _factor("Y", "TS_Return(Close, 10)")
-        factor_json = json.dumps([bad, good])
-        specs = parse_factor_specs(factor_json, valid_op_names)
+        good = _signal("Y", "TS_Return(Close, 10)")
+        signal_json = json.dumps([bad, good])
+        specs = parse_signal_specs(signal_json, valid_op_names)
         assert len(specs) == 1
         assert "y" in specs[0]["name"].lower()
 
     def test_handles_single_object_not_array(self, valid_op_names):
-        factor_json = json.dumps(_factor("F1", "TS_Return(Close, 5)"))
-        specs = parse_factor_specs(factor_json, valid_op_names)
+        signal_json = json.dumps(_signal("F1", "TS_Return(Close, 5)"))
+        specs = parse_signal_specs(signal_json, valid_op_names)
         assert len(specs) == 1
 
     def test_recovers_from_prose_around_json(self, valid_op_names):
-        factor_obj = _factor("F1", "TS_Return(Close, 5)")
-        wrapped = f"Sure! Here are the factors:\n```json\n[{json.dumps(factor_obj)}]\n```\nDone."
-        specs = parse_factor_specs(wrapped, valid_op_names)
+        signal_obj = _signal("F1", "TS_Return(Close, 5)")
+        wrapped = f"Sure! Here are the signals:\n```json\n[{json.dumps(signal_obj)}]\n```\nDone."
+        specs = parse_signal_specs(wrapped, valid_op_names)
         assert len(specs) == 1
 
     def test_returns_empty_for_unparseable(self, valid_op_names):
-        specs = parse_factor_specs("totally not json", valid_op_names)
+        specs = parse_signal_specs("totally not json", valid_op_names)
         assert specs == []
 
     def test_normalizes_operator_names_in_formula(self, valid_op_names):
         # 'divide' gets normalized to canonical 'Div'
-        factor_json = json.dumps(_factor("F1", "divide(Close, Volume)"))
-        specs = parse_factor_specs(factor_json, valid_op_names)
+        signal_json = json.dumps(_signal("F1", "divide(Close, Volume)"))
+        specs = parse_signal_specs(signal_json, valid_op_names)
         assert len(specs) == 1
         assert "Div(" in specs[0]["formula"]
         assert "divide(" not in specs[0]["formula"]
 
     def test_falls_back_to_close_when_no_fields(self, valid_op_names):
-        factor = _factor("F1", "TS_Return(Close, 5)", fields=[])
-        specs = parse_factor_specs(json.dumps([factor]), valid_op_names)
+        signal = _signal("F1", "TS_Return(Close, 5)", fields=[])
+        specs = parse_signal_specs(json.dumps([signal]), valid_op_names)
         assert specs[0]["fields"] == ["Close"]
 
     def test_filters_invalid_field_names(self, valid_op_names):
-        factor = _factor("F1", "TS_Return(Close, 5)", fields=["Close", "Bogus"])
-        specs = parse_factor_specs(json.dumps([factor]), valid_op_names)
+        signal = _signal("F1", "TS_Return(Close, 5)", fields=["Close", "Bogus"])
+        specs = parse_signal_specs(json.dumps([signal]), valid_op_names)
         assert specs[0]["fields"] == ["Close"]
 
 
 # ---------------------------------------------------------------------------
-# parse_factor_specs_with_errors — error surfacing for the orchestrator
+# parse_signal_specs_with_errors — error surfacing for the orchestrator
 # ---------------------------------------------------------------------------
 
 
-class TestParseFactorSpecsWithErrors:
+class TestParseSignalSpecsWithErrors:
     def test_returns_arity_violations(self, valid_op_names):
         # Rank takes 1 arg; calling it with 2 should be skipped AND reported.
-        bad = _factor("RankBad", "Rank(Close, Volume)")
-        good = _factor("Mom", "TS_Return(Close, 20)")
-        specs, errors = parse_factor_specs_with_errors(
+        bad = _signal("RankBad", "Rank(Close, Volume)")
+        good = _signal("Mom", "TS_Return(Close, 20)")
+        specs, errors = parse_signal_specs_with_errors(
             json.dumps([bad, good]), valid_op_names
         )
         assert len(specs) == 1
         assert any("Rank expects 1" in e for e in errors)
 
     def test_empty_errors_when_all_valid(self, valid_op_names):
-        good = _factor("Mom", "TS_Return(Close, 20)")
-        specs, errors = parse_factor_specs_with_errors(json.dumps([good]), valid_op_names)
+        good = _signal("Mom", "TS_Return(Close, 20)")
+        specs, errors = parse_signal_specs_with_errors(json.dumps([good]), valid_op_names)
         assert len(specs) == 1
         assert errors == []
 
     def test_reports_unparseable_json(self, valid_op_names):
-        specs, errors = parse_factor_specs_with_errors("not json at all", valid_op_names)
+        specs, errors = parse_signal_specs_with_errors("not json at all", valid_op_names)
         assert specs == []
         assert errors and "JSON" in errors[0]
 
@@ -170,7 +170,7 @@ class TestCollectOperatorCode:
         specs = [{"name": "f", "formula": "Bogus(Close, 5)", "fields": ["Close"], "doc": ""}]
         assert collect_operator_code(specs, code_map) == ""
 
-    def test_dedupes_across_multiple_factors(self, code_map):
+    def test_dedupes_across_multiple_signals(self, code_map):
         specs = [
             {"name": "f1", "formula": "TS_Return(Close, 5)", "fields": ["Close"], "doc": ""},
             {"name": "f2", "formula": "TS_Return(Close, 10)", "fields": ["Close"], "doc": ""},
@@ -192,14 +192,14 @@ class TestAssembleModule:
         assert "import numpy as np" in module
 
     def test_includes_operator_and_function_blocks(self):
-        module = assemble_module("def Div(x, y): return x / y\n", "def factor_x(Close): return Close\n")
+        module = assemble_module("def Div(x, y): return x / y\n", "def signal_x(Close): return Close\n")
         assert "def Div" in module
-        assert "def factor_x" in module
+        assert "def signal_x" in module
 
     def test_module_is_valid_python(self):
         module = assemble_module(
             "def TS_Return(x, d): return x.pct_change(d)\n",
-            "def factor_x(Close): return TS_Return(Close, 5)\n",
+            "def signal_x(Close): return TS_Return(Close, 5)\n",
         )
         # If this doesn't raise, the module is syntactically valid.
         compile(module, "<test>", "exec")
@@ -212,18 +212,18 @@ class TestAssembleModule:
 
 class TestPythonFunctionName:
     def test_already_valid_identifier(self):
-        assert _python_function_name("factor_momentum", 0) == "factor_momentum"
+        assert _python_function_name("signal_momentum", 0) == "signal_momentum"
 
     def test_strips_special_characters(self):
-        assert _python_function_name("Volume-Decayed Momentum!", 0) == "factor_volume_decayed_momentum"
+        assert _python_function_name("Volume-Decayed Momentum!", 0) == "signal_volume_decayed_momentum"
 
-    def test_prepends_factor_prefix(self):
-        assert _python_function_name("Momentum", 0).startswith("factor_")
+    def test_prepends_signal_prefix(self):
+        assert _python_function_name("Momentum", 0).startswith("signal_")
 
     def test_handles_empty_name(self):
-        # Falls back to factor_<index+1>.
-        assert _python_function_name("", 0) == "factor_1"
-        assert _python_function_name(None, 4) == "factor_5"
+        # Falls back to signal_<index+1>.
+        assert _python_function_name("", 0) == "signal_1"
+        assert _python_function_name(None, 4) == "signal_5"
 
     def test_avoids_leading_digit(self):
         result = _python_function_name("20-Day Momentum", 0)

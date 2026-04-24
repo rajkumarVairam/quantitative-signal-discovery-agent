@@ -1,8 +1,8 @@
 {
     "schema_version": "1.0",
-    "description": "Output template for generated quantitative factors",
-    "factor_template": {
-        "name": "<factor_name>",
+    "description": "Output template for generated quantitative signals",
+    "signal_template": {
+        "name": "<signal_name>",
         "formula": "<formula_using_operators>",
         "meaning": "<economic_intuition>",
         "category": "<momentum|volatility|volume|reversal|quality|other>",

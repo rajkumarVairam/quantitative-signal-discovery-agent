@@ -141,7 +141,7 @@ def extract_json_array(text: str) -> list:
       - <think>...</think> reasoning prefixes
       - Plain prose surrounding (or before) the JSON
       - A single object instead of an array
-      - Multiple standalone {...} factor objects without an outer array
+      - Multiple standalone {...} signal objects without an outer array
 
     Returns the parsed list, or [] if nothing parseable was found.
     """

@@ -1,9 +1,10 @@
 *.egg-info/
 __pycache__/
+.pytest_cache/
 output/
 .venv/
 .vscode/
-src/factor_mining_workflow/data/sp500/*.csv
+src/signal_discovery_workflow/data/sp500/*.csv
 
 # Secrets — never commit API keys.
 .env

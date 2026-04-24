@@ -14,9 +14,9 @@
 # limitations under the License.
 
 """
-Factor Evaluator: Rank IC computation, factor-code execution, and helpers.
+Signal Evaluator: Rank IC computation, signal-code execution, and helpers.
 
-The rank IC measures the Spearman correlation between factor values and forward
+The rank IC measures the Spearman correlation between signal values and forward
 stock returns — a standard quant-research signal-quality metric.
 """
 
@@ -125,24 +125,24 @@ def compute_forward_returns(close: pd.DataFrame, periods: int = 5) -> pd.DataFra
 
 
 def compute_rank_ic(
-    factor_values: pd.DataFrame,
+    signal_values: pd.DataFrame,
     forward_returns: pd.DataFrame,
 ) -> dict[str, Any]:
     """
-    Compute rank IC (Information Coefficient) between factor values and forward returns.
+    Compute rank IC (Information Coefficient) between signal values and forward returns.
 
-    The rank IC is the Spearman correlation between factor ranks and return ranks
+    The rank IC is the Spearman correlation between signal ranks and return ranks
     computed cross-sectionally for each date, then aggregated.
 
     Args:
-        factor_values: DataFrame of factor values (rows=dates, cols=stocks).
+        signal_values: DataFrame of signal values (rows=dates, cols=stocks).
         forward_returns: DataFrame of forward returns (rows=dates, cols=stocks).
 
     Returns:
         Dictionary containing IC statistics.
     """
-    common_dates = factor_values.index.intersection(forward_returns.index)
-    common_stocks = factor_values.columns.intersection(forward_returns.columns)
+    common_dates = signal_values.index.intersection(forward_returns.index)
+    common_stocks = signal_values.columns.intersection(forward_returns.columns)
 
     if len(common_dates) == 0 or len(common_stocks) == 0:
         return {
@@ -152,10 +152,10 @@ def compute_rank_ic(
             "t_stat": None,
             "p_value": None,
             "num_periods": 0,
-            "error": "No common dates or stocks between factor and returns",
+            "error": "No common dates or stocks between signal and returns",
         }
 
-    factor_aligned = factor_values.loc[common_dates, common_stocks]
+    signal_aligned = signal_values.loc[common_dates, common_stocks]
     returns_aligned = forward_returns.loc[common_dates, common_stocks]
 
     # Suppress numpy "invalid value encountered" RuntimeWarnings from std/mean
@@ -166,22 +166,22 @@ def compute_rank_ic(
 
         ic_series = []
         for date in common_dates:
-            factor_row = factor_aligned.loc[date].dropna()
+            signal_row = signal_aligned.loc[date].dropna()
             returns_row = returns_aligned.loc[date].dropna()
 
-            common = factor_row.index.intersection(returns_row.index)
+            common = signal_row.index.intersection(returns_row.index)
             if len(common) < 10:
                 continue
 
-            factor_vals = factor_row[common].values
+            signal_vals = signal_row[common].values
             return_vals = returns_row[common].values
 
             # Spearman correlation requires non-constant inputs.
-            if np.std(factor_vals) < 1e-10 or np.std(return_vals) < 1e-10:
+            if np.std(signal_vals) < 1e-10 or np.std(return_vals) < 1e-10:
                 continue
 
             try:
-                correlation, _ = stats.spearmanr(factor_vals, return_vals)
+                correlation, _ = stats.spearmanr(signal_vals, return_vals)
                 if not np.isnan(correlation):
                     ic_series.append(correlation)
             except Exception:
@@ -246,7 +246,7 @@ def extract_code_from_response(code_response: str) -> str:
 # calculator.json so this set always stays in sync with available operators.
 OPERATOR_NAMES = set(_OPERATOR_FUNCTIONS.keys())
 
-# Standard data field names. Order matters: when a factor function uses a
+# Standard data field names. Order matters: when a signal function uses a
 # generic parameter name (e.g. `x`, `data`, `prices`), parameters are filled
 # positionally from this list.
 STANDARD_FIELDS = ["Close", "Volume", "High", "Low", "Open"]
@@ -269,12 +269,12 @@ def _is_dataframe_param(p: inspect.Parameter) -> bool:
     return False
 
 
-def _resolve_factor_args(
+def _resolve_signal_args(
     sig: inspect.Signature,
     stock_data: dict[str, pd.DataFrame],
 ) -> dict[str, pd.DataFrame]:
     """
-    Map factor function parameters to stock data DataFrames.
+    Map signal function parameters to stock data DataFrames.
 
     Only DataFrame parameters are filled. Numeric/string parameters
     (lookback windows, thresholds, etc.) are left to use their defaults so
@@ -330,8 +330,8 @@ _SMART_UNICODE = str.maketrans(
 
 def _detect_helpers(candidates: list[tuple[str, Any]]) -> set[str]:
     """
-    Among a set of candidate factor functions, return the names of those that
-    are *called by* another candidate (i.e. helpers, not factors themselves).
+    Among a set of candidate signal functions, return the names of those that
+    are *called by* another candidate (i.e. helpers, not signals themselves).
     """
     helpers: set[str] = set()
     names = {name for name, _ in candidates}
@@ -346,21 +346,21 @@ def _detect_helpers(candidates: list[tuple[str, Any]]) -> set[str]:
     return helpers
 
 
-def execute_factor_code(
+def execute_signal_code(
     code: str, stock_data: dict[str, pd.DataFrame]
 ) -> tuple[pd.DataFrame, str] | None:
     """
-    Execute self-contained factor code and call its factor function(s).
+    Execute self-contained signal code and call its signal function(s).
 
     The ``code`` string is expected to be a complete, runnable Python module
-    that defines its own imports, operator functions, and factor functions.
-    No pre-seeded globals are injected: factor functions receive their input
+    that defines its own imports, operator functions, and signal functions.
+    No pre-seeded globals are injected: signal functions receive their input
     DataFrames as arguments, and operators come from definitions in the
-    module itself. This makes the saved ``factor_code`` portable: it can be
+    module itself. This makes the saved ``signal_code`` portable: it can be
     copy-pasted into any Python session and run as-is.
 
-    Returns the (factor_values, selected_factor_name) tuple of the highest-IC
-    factor among those defined in ``code``, or None on failure.
+    Returns the (signal_values, selected_signal_name) tuple of the highest-IC
+    signal among those defined in ``code``, or None on failure.
     """
     namespace: dict[str, Any] = {}
 
@@ -369,7 +369,7 @@ def execute_factor_code(
         # that would otherwise raise SyntaxError.
         exec(code.translate(_SMART_UNICODE), namespace)
 
-        # Candidate factors: user-defined functions that aren't operators.
+        # Candidate signals: user-defined functions that aren't operators.
         # `__code__` filters out modules/builtins; OPERATOR_NAMES excludes
         # operator implementations inlined at the top of the module.
         candidates = [
@@ -382,15 +382,15 @@ def execute_factor_code(
         ]
 
         if not candidates:
-            logger.warning("No factor functions found in the code")
+            logger.warning("No signal functions found in the code")
             return None
 
         helpers = _detect_helpers(candidates)
-        factor_functions = [(n, f) for n, f in candidates if n not in helpers] or candidates
+        signal_functions = [(n, f) for n, f in candidates if n not in helpers] or candidates
 
         logger.info(
-            f"Found {len(factor_functions)} factor function(s): "
-            f"{[f[0] for f in factor_functions]}"
+            f"Found {len(signal_functions)} signal function(s): "
+            f"{[f[0] for f in signal_functions]}"
             + (f" (skipping helpers: {sorted(helpers)})" if helpers else "")
         )
 
@@ -404,18 +404,18 @@ def execute_factor_code(
         with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-            for func_name, factor_func in factor_functions:
+            for func_name, signal_func in signal_functions:
                 try:
-                    sig = inspect.signature(factor_func)
-                    kwargs = _resolve_factor_args(sig, stock_data)
+                    sig = inspect.signature(signal_func)
+                    kwargs = _resolve_signal_args(sig, stock_data)
                     df_param_count = sum(
                         1 for p in sig.parameters.values() if _is_dataframe_param(p)
                     )
 
                     if len(kwargs) == df_param_count:
-                        result = factor_func(**kwargs)
+                        result = signal_func(**kwargs)
                     elif len(sig.parameters) == 0:
-                        result = factor_func()
+                        result = signal_func()
                     else:
                         logger.warning(
                             f"Cannot determine args for {func_name} "
@@ -469,7 +469,7 @@ def execute_factor_code(
 
         if best_result is not None:
             ic_str = f"{best_ic:.4f}" if best_ic is not None else "N/A"
-            logger.info(f"Selected best factor: {best_name} with |IC| = {ic_str}")
+            logger.info(f"Selected best signal: {best_name} with |IC| = {ic_str}")
             return best_result, best_name
 
         return None
@@ -484,9 +484,9 @@ def execute_factor_code(
             f"  {i + 1:4d} {'>>' if i + 1 == lineno else '  '} {line}"
             for i, line in enumerate(lines[start:end], start=start)
         )
-        logger.error(f"SyntaxError in generated factor code: {e}\n{snippet}")
+        logger.error(f"SyntaxError in generated signal code: {e}\n{snippet}")
         return None
     except Exception as e:
-        logger.error(f"Error executing factor code: {e}")
+        logger.error(f"Error executing signal code: {e}")
         logger.debug(traceback.format_exc())
         return None

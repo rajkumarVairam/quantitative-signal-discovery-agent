@@ -14,15 +14,15 @@
 # limitations under the License.
 
 """
-Factor Generator Agent.
+Signal Generator Agent.
 
-Calls an LLM to produce factor descriptions in the JSON format defined by
-``template/factor_output_template.json``. Each factor is a dict with at least
+Calls an LLM to produce signal descriptions in the JSON format defined by
+``template/signal_output_template.json``. Each signal is a dict with at least
 ``name``, ``formula``, ``meaning``, ``data_fields_used``, ``operators_used``.
 
 This module also provides:
   - ``load_calculator_operators`` / ``format_operators_for_prompt`` helpers
-  - ``factor_validator_function`` and ``list_operators_function`` NAT tools
+  - ``signal_validator_function`` and ``list_operators_function`` NAT tools
 """
 
 import json
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "template"
 CALCULATOR_JSON = TEMPLATE_DIR / "calculator.json"
-OUTPUT_TEMPLATE_JSON = TEMPLATE_DIR / "factor_output_template.json"
+OUTPUT_TEMPLATE_JSON = TEMPLATE_DIR / "signal_output_template.json"
 
 VALID_DATA_FIELDS = {"Open", "Close", "High", "Low", "Volume"}
 
@@ -59,7 +59,7 @@ def load_calculator_operators() -> list[dict]:
 
 
 def load_output_template() -> dict:
-    """Load the factor output schema from ``template/factor_output_template.json``."""
+    """Load the signal output schema from ``template/signal_output_template.json``."""
     if not OUTPUT_TEMPLATE_JSON.exists():
         logger.warning(f"Output template not found at {OUTPUT_TEMPLATE_JSON}")
         return {}
@@ -101,26 +101,26 @@ def format_operators_for_prompt(operators: list[dict], max_operators: int = 30) 
     return "\n".join(lines)
 
 
-def build_factor_template(num_factors: int, template: dict | None = None) -> str:
+def build_signal_template(num_signals: int, template: dict | None = None) -> str:
     """
-    Render the placeholder JSON the factor generator should fill in.
+    Render the placeholder JSON the signal generator should fill in.
 
-    The shape comes from ``factor_output_template.json::factor_template`` so
+    The shape comes from ``signal_output_template.json::signal_template`` so
     the schema is the single source of truth: edit the template file to
     change every place the placeholder is shown.
     """
     template = template if template is not None else load_output_template()
-    factor_template = template.get("factor_template")
-    if not factor_template:
+    signal_template = template.get("signal_template")
+    if not signal_template:
         raise RuntimeError(
-            "factor_output_template.json is missing the 'factor_template' field"
+            "signal_output_template.json is missing the 'signal_template' field"
         )
-    item = json.dumps(factor_template, indent=2)
-    items = ",\n".join([item] * num_factors)
+    item = json.dumps(signal_template, indent=2)
+    items = ",\n".join([item] * num_signals)
     return "```json\n[\n" + items + "\n]\n```"
 
 
-def build_factor_example(template: dict | None = None) -> str:
+def build_signal_example(template: dict | None = None) -> str:
     """Return an illustrative few-shot example from the output template."""
     template = template if template is not None else load_output_template()
     example = template.get("output_format", {}).get("example") or []
@@ -129,22 +129,22 @@ def build_factor_example(template: dict | None = None) -> str:
     return "```json\n" + json.dumps(example[:1], indent=2) + "\n```"
 
 
-def build_factor_prompt(
+def build_signal_prompt(
     request: str,
-    num_factors: int,
+    num_signals: int,
     operators_list: str,
     template_block: str,
     feedback: str | None = None,
     example_block: str = "",
 ) -> str:
-    """Assemble the user prompt for the factor generator LLM."""
+    """Assemble the user prompt for the signal generator LLM."""
     feedback_section = f"\n\nPREVIOUS FEEDBACK:\n{feedback}\n" if feedback else ""
     example_section = (
-        f"\nFor reference, here is an example of one valid factor:\n{example_block}\n"
+        f"\nFor reference, here is an example of one valid signal:\n{example_block}\n"
         if example_block
         else ""
     )
-    return f"""You are a senior quantitative researcher. Generate {num_factors} stock selection factors.
+    return f"""You are a senior quantitative researcher. Generate {num_signals} stock selection signals.
 
 REQUEST: {request}
 {feedback_section}
@@ -164,31 +164,31 @@ Fill in this exact template at the END of your reply (inside a ```json block):
 
 {template_block}
 
-Generate {num_factors} factors now."""
+Generate {num_signals} signals now."""
 
 
-async def generate_factor_json(
+async def generate_signal_json(
     llm,
     request: str,
-    num_factors: int,
+    num_signals: int,
     operators: list[dict],
     feedback: str | None = None,
 ) -> str:
     """
-    Call the factor LLM and return its raw response text.
+    Call the signal LLM and return its raw response text.
 
-    The response is expected to contain a JSON array of factor objects (often
+    The response is expected to contain a JSON array of signal objects (often
     inside a ```json fence at the end of a reasoning trace). Downstream code
     is responsible for extracting the JSON.
     """
     template = load_output_template()
-    prompt = build_factor_prompt(
+    prompt = build_signal_prompt(
         request,
-        num_factors,
+        num_signals,
         format_operators_for_prompt(operators),
-        build_factor_template(num_factors, template),
+        build_signal_template(num_signals, template),
         feedback,
-        build_factor_example(template),
+        build_signal_example(template),
     )
 
     # Disable Nemotron's chain-of-thought trace so the entire token budget
@@ -205,11 +205,11 @@ async def generate_factor_json(
     if not content.strip():
         extras = list((getattr(response, "additional_kwargs", {}) or {}).keys())
         logger.warning(
-            "Factor generator returned empty .content. Increase max_tokens "
-            f"for the factor_generator LLM. additional_kwargs={extras}"
+            "Signal generator returned empty .content. Increase max_tokens "
+            f"for the signal_generator LLM. additional_kwargs={extras}"
         )
 
-    logger.debug(f"Factor generator output: {len(content)} chars")
+    logger.debug(f"Signal generator output: {len(content)} chars")
     return content
 
 
@@ -218,74 +218,74 @@ async def generate_factor_json(
 # =============================================================================
 
 
-class FactorGeneratorConfig(FunctionBaseConfig, name="factor_generator"):
-    """Generate quantitative factors using the calculator operators."""
+class SignalGeneratorConfig(FunctionBaseConfig, name="signal_generator"):
+    """Generate quantitative signals using the calculator operators."""
 
-    num_factors: int = Field(default=3, description="Number of factors to generate.")
+    num_signals: int = Field(default=3, description="Number of signals to generate.")
     llm_name: str | None = Field(
         default=None,
         description="LLM to use for generation. If None, returns the prompt for the agent to process.",
     )
 
 
-@register_function(config_type=FactorGeneratorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def factor_generator_function(config: FactorGeneratorConfig, builder: Builder):
-    """NAT function wrapper around ``generate_factor_json``."""
+@register_function(config_type=SignalGeneratorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def signal_generator_function(config: SignalGeneratorConfig, builder: Builder):
+    """NAT function wrapper around ``generate_signal_json``."""
     operators = load_calculator_operators()
 
     llm = None
     if config.llm_name:
         llm = await builder.get_llm(llm_name=config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
-    async def generate_factors(request: str) -> str:
+    async def generate_signals(request: str) -> str:
         """
-        Generate quantitative factors for stock selection.
+        Generate quantitative signals for stock selection.
 
         Args:
-            request: What kind of factors to generate. e.g. "momentum factors",
-                     "volatility factors", "volume-price divergence factors".
+            request: What kind of signals to generate. e.g. "momentum signals",
+                     "volatility signals", "volume-price divergence signals".
 
         Returns:
-            JSON array (as a string) of factor objects with name, formula,
+            JSON array (as a string) of signal objects with name, formula,
             meaning, data_fields_used, operators_used.
         """
         if llm:
-            return await generate_factor_json(llm, request, config.num_factors, operators)
+            return await generate_signal_json(llm, request, config.num_signals, operators)
 
         template = load_output_template()
-        prompt = build_factor_prompt(
+        prompt = build_signal_prompt(
             request,
-            config.num_factors,
+            config.num_signals,
             format_operators_for_prompt(operators),
-            build_factor_template(config.num_factors, template),
-            example_block=build_factor_example(template),
+            build_signal_template(config.num_signals, template),
+            example_block=build_signal_example(template),
         )
-        return f"Please generate factors based on this specification:\n\n{prompt}"
+        return f"Please generate signals based on this specification:\n\n{prompt}"
 
     yield FunctionInfo.from_fn(
-        generate_factors,
+        generate_signals,
         description=(
-            "Generate quantitative stock selection factors in JSON format. "
-            "Input: description of factors needed (e.g., 'momentum factors')."
+            "Generate quantitative stock selection signals in JSON format. "
+            "Input: description of signals needed (e.g., 'momentum signals')."
         ),
     )
 
 
-class FactorValidatorConfig(FunctionBaseConfig, name="factor_validator"):
-    """Validate factor formulas against calculator.json operators."""
+class SignalValidatorConfig(FunctionBaseConfig, name="signal_validator"):
+    """Validate signal formulas against calculator.json operators."""
 
-    strict_mode: bool = Field(default=True, description="Reject factors with unknown operators.")
+    strict_mode: bool = Field(default=True, description="Reject signals with unknown operators.")
 
 
-@register_function(config_type=FactorValidatorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def factor_validator_function(config: FactorValidatorConfig, builder: Builder):
-    """Validate factor formulas to ensure they use known operators."""
+@register_function(config_type=SignalValidatorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def signal_validator_function(config: SignalValidatorConfig, builder: Builder):
+    """Validate signal formulas to ensure they use known operators."""
     operators = load_calculator_operators()
     valid_operators = {op["name"] for op in operators}
 
-    async def validate_factor(formula: str) -> str:
+    async def validate_signal(formula: str) -> str:
         """
-        Validate a factor formula.
+        Validate a signal formula.
 
         Example: ``Div(TS_Return(Close, 20), TS_Std(Close, 20))``
         """
@@ -297,8 +297,8 @@ async def factor_validator_function(config: FactorValidatorConfig, builder: Buil
         return f"VALID: Uses operators: {', '.join(set(valid_used))}"
 
     yield FunctionInfo.from_fn(
-        validate_factor,
-        description="Validate a factor formula against available operators.",
+        validate_signal,
+        description="Validate a signal formula against available operators.",
     )
 
 
@@ -313,7 +313,7 @@ class ListOperatorsConfig(FunctionBaseConfig, name="list_operators"):
 
 @register_function(config_type=ListOperatorsConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def list_operators_function(config: ListOperatorsConfig, builder: Builder):
-    """List available operators for factor construction."""
+    """List available operators for signal construction."""
     operators = load_calculator_operators()
 
     async def list_operators(category: str | None = None) -> str:
@@ -334,5 +334,5 @@ async def list_operators_function(config: ListOperatorsConfig, builder: Builder)
 
     yield FunctionInfo.from_fn(
         list_operators,
-        description="List available calculator operators for factor construction.",
+        description="List available calculator operators for signal construction.",
     )

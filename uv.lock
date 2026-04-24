@@ -900,44 +900,6 @@ wheels = [
 ]
 
 [[package]]
-name = "factor-mining-workflow"
-source = { editable = "." }
-dependencies = [
-    { name = "arize-phoenix" },
-    { name = "arize-phoenix-otel" },
-    { name = "jupyter" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "nvidia-nat", extra = ["langchain"] },
-    { name = "nvidia-nat-phoenix" },
-    { name = "openinference-instrumentation-langchain" },
-    { name = "pandas" },
-    { name = "scipy" },
-    { name = "yfinance" },
-]
-
-[package.optional-dependencies]
-test = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "arize-phoenix" },
-    { name = "arize-phoenix-otel" },
-    { name = "jupyter" },
-    { name = "numpy" },
-    { name = "nvidia-nat", extras = ["langchain"], specifier = "==1.4.*" },
-    { name = "nvidia-nat-phoenix", specifier = "==1.4.*" },
-    { name = "openinference-instrumentation-langchain" },
-    { name = "pandas" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
-    { name = "scipy" },
-    { name = "yfinance" },
-]
-provides-extras = ["test"]
-
-[[package]]
 name = "fastapi"
 version = "0.128.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4246,6 +4208,44 @@ sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
 ]
+
+[[package]]
+name = "signal-discovery-workflow"
+source = { editable = "." }
+dependencies = [
+    { name = "arize-phoenix" },
+    { name = "arize-phoenix-otel" },
+    { name = "jupyter" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "nvidia-nat", extra = ["langchain"] },
+    { name = "nvidia-nat-phoenix" },
+    { name = "openinference-instrumentation-langchain" },
+    { name = "pandas" },
+    { name = "scipy" },
+    { name = "yfinance" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arize-phoenix" },
+    { name = "arize-phoenix-otel" },
+    { name = "jupyter" },
+    { name = "numpy" },
+    { name = "nvidia-nat", extras = ["langchain"], specifier = "==1.4.*" },
+    { name = "nvidia-nat-phoenix", specifier = "==1.4.*" },
+    { name = "openinference-instrumentation-langchain" },
+    { name = "pandas" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+    { name = "scipy" },
+    { name = "yfinance" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "six"

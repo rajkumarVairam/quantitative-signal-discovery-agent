@@ -15,12 +15,12 @@
 
 # flake8: noqa
 
-"""Factor Mining Workflow - NAT Function Registration."""
+"""Signal Discovery Workflow - NAT Function Registration."""
 
-from .factor_code_generator import factor_code_generator_function
-from .factor_generator import (
-    factor_generator_function,
-    factor_validator_function,
+from .signal_code_generator import signal_code_generator_function
+from .signal_generator import (
+    signal_generator_function,
+    signal_validator_function,
     list_operators_function,
 )
-from .factor_mining_optimization_workflow import factor_optimizer_function
+from .signal_discovery_optimization_workflow import signal_optimizer_function
