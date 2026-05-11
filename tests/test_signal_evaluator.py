@@ -131,6 +131,20 @@ class TestComputeRankIC:
         assert result["mean_ic"] is not None
         assert abs(result["mean_ic"]) < 0.15
 
+    def test_zero_t_stat_has_p_value(self):
+        """A zero t-statistic is valid and should produce p-value 1.0."""
+        dates = pd.date_range("2020-01-01", periods=2, freq="B")
+        tickers = [f"S{i:02d}" for i in range(20)]
+        row = np.arange(20, dtype=float)
+        returns = pd.DataFrame([row, row], index=dates, columns=tickers)
+        signal = pd.DataFrame([row, -row], index=dates, columns=tickers)
+
+        result = compute_rank_ic(signal, returns)
+
+        assert result["mean_ic"] == pytest.approx(0.0)
+        assert result["t_stat"] == pytest.approx(0.0)
+        assert result["p_value"] == pytest.approx(1.0)
+
     def test_no_common_dates(self):
         """Disjoint date ranges → None metrics, 0 periods."""
         dates_a = pd.date_range("2020-01-01", periods=30, freq="B")
@@ -286,6 +300,23 @@ class TestExecuteSignalCode:
         assert result is not None
         _, name = result
         assert name in ("signal_alpha", "signal_beta")
+
+    def test_selection_periods_controls_best_signal(self, stock_data):
+        code = (
+            "import pandas as pd\n\n"
+            "def signal_one_day(Close):\n"
+            "    return Close.shift(-1) / Close - 1\n\n"
+            "def signal_five_day(Close):\n"
+            "    return Close.shift(-5) / Close - 1\n"
+        )
+
+        one_day = execute_signal_code(code, stock_data, selection_periods=1)
+        five_day = execute_signal_code(code, stock_data, selection_periods=5)
+
+        assert one_day is not None
+        assert five_day is not None
+        assert one_day[1] == "signal_one_day"
+        assert five_day[1] == "signal_five_day"
 
     def test_operator_names_not_treated_as_signals(self, stock_data):
         """Known operator names like TS_Return should not be returned as the signal."""

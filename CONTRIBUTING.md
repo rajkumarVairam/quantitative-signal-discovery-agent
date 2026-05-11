@@ -1,6 +1,6 @@
 # Contributing to NVIDIA Quantitative Signal Discovery Agent developer example
 
-Thank you for your interest in contributing to Quantitative Signal Discovery Agent developer example! This document provides guidelines and instructions for contributing to the project.
+Thank you for contributing to the Quantitative Signal Discovery Agent developer example. This guide covers the local setup, checks, and submission process.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ There are many ways to contribute to Quantitative Signal Discovery Agent develop
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.11, 3.12, or 3.13
 - NVIDIA API key from [build.nvidia.com](https://build.nvidia.com/settings/api-keys)
 
 ### Setting Up Your Development Environment
@@ -59,7 +59,7 @@ There are many ways to contribute to Quantitative Signal Discovery Agent develop
    ```bash
    uv venv
    source .venv/bin/activate
-   uv pip install -e .
+   uv pip install -e ".[test]"
    ```
 
 4. **Download Data**
@@ -72,24 +72,18 @@ There are many ways to contribute to Quantitative Signal Discovery Agent develop
 
 ### Python Style Guide
 
-We follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) with the following specifications:
+We follow the Ruff rules configured in `pyproject.toml`:
 
-- **Line length**: 88 characters (Black default)
+- **Line length**: 120 characters
 - **String quotes**: Use double quotes for strings
-- **Import ordering**: Managed by `isort` with Black profile
+- **Import ordering**: Managed by Ruff's import sorter
 
 ### Code Formatting
 
-All code must be formatted with:
-
-- **Black**: For consistent code formatting
-- **isort**: For import statement ordering
-
-Run formatters before committing:
+Run Ruff before committing:
 
 ```bash
-black .
-isort .
+uv run ruff check src tests
 ```
 
 ### Documentation
@@ -134,7 +128,7 @@ We encourage comprehensive testing of all new features and bug fixes.
 pytest
 
 # Run specific test file
-pytest tests/test_evaluator.py
+pytest tests/test_signal_evaluator.py
 
 # Run with coverage
 pytest --cov=src --cov-report=html
@@ -186,9 +180,8 @@ Explain what changes were made and why.
 2. **Run all checks** before submitting:
 
    ```bash
-   black .
-   isort .
-   pytest
+   uv run ruff check src tests
+   uv run pytest tests/
    ```
 
 3. **Create a Pull Request** with:
@@ -205,7 +198,7 @@ Explain what changes were made and why.
 
 Before submitting, ensure:
 
-- [ ] Code follows style guidelines (Black, isort)
+- [ ] Code follows the Ruff checks in `pyproject.toml`
 - [ ] All tests pass
 - [ ] New tests added for new features
 - [ ] Documentation updated (docstrings, README, etc.)

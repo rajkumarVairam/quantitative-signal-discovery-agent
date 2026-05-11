@@ -255,7 +255,11 @@ async def signal_optimizer_function(config: SignalOptimizerConfig, builder: Buil
             return {"error": "No stock data", "mean_ic": None}
 
         clean_code = extract_code_from_response(signal_code)
-        exec_result = execute_signal_code(clean_code, stock_data)
+        exec_result = execute_signal_code(
+            clean_code,
+            stock_data,
+            selection_periods=config.forward_periods,
+        )
         if exec_result is None:
             return {"error": "Code execution failed", "mean_ic": None}
         signal_values, selected_signal = exec_result

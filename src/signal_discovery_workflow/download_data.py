@@ -20,8 +20,8 @@
 """
 Download S&P 500 price-volume data using yfinance.
 
-Fetches Open, Close, High, Low, and Volume data for current S&P 500
-constituents and saves each field as a separate CSV file compatible
+Fetches Open, Close, High, Low, and Volume data for a curated S&P 500
+ticker universe and saves each field as a separate CSV file compatible
 with the signal discovery workflow.
 
 Usage:
@@ -82,7 +82,7 @@ SP500_TICKERS = [
 
 
 def get_sp500_tickers() -> list[str]:
-    """Return the list of S&P 500 ticker symbols."""
+    """Return the configured S&P 500 ticker universe."""
     logger.info(f"Using {len(SP500_TICKERS)} S&P 500 tickers")
     return SP500_TICKERS
 

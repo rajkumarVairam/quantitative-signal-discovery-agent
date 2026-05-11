@@ -64,7 +64,7 @@ This workflow can be deployed in three ways:
 
 ### Deploy on Brev
 
-Spin up a one-click GPU instance on [brev.nvidia.com](https://brev.nvidia.com/) and open [`brev/launchable-setup.ipynb`](brev/launchable-setup.ipynb). It clones the repo, installs `uv`, syncs dependencies, registers a Jupyter kernel, and downloads the S&P 500 dataset. When it finishes, follow the inline link to jump into [`notebooks/signal-discovery-workflow.ipynb`](notebooks/signal-discovery-workflow.ipynb) and start discovering signals.
+Spin up a one-click GPU instance on [brev.nvidia.com](https://brev.nvidia.com/) and open [`brev/launchable-setup.ipynb`](brev/launchable-setup.ipynb). It clones the repo, installs `uv`, syncs dependencies, and registers a Jupyter kernel. When it finishes, follow the inline link to jump into [`brev/signal-discovery-workflow.ipynb`](brev/signal-discovery-workflow.ipynb), which uses [`configs/config-optimization-no-telemetry.yml`](configs/config-optimization-no-telemetry.yml) so the cloud notebook does not require a separate Phoenix server.
 
 ### Option 1: Interactive Notebook Deployment
 
@@ -157,7 +157,7 @@ The workflow configuration is defined in `configs/config-optimization.yml`:
 | `forward_periods` | Number of days for forward return calculation (e.g., 5 = weekly) |
 | `save_results` | Whether to save accepted/best-effort signals to `output/` |
 
-You can use the same model for all three agents (the default), or mix sizes: for example, assign a higher-capability reasoning model like `nvidia/llama-3.3-nemotron-super-49b-v1.5` to the Signal Agent for richer ideation while keeping the smaller `nvidia/nvidia-nemotron-nano-9b-v2` for the Code and Advisor agents — a one-line change in the YAML.
+You can use the same model for all three agents, or assign separate models to the Signal, Code, and Advisor agents by editing the `llms` blocks in the YAML.
 
 ## Evaluation Metrics
 
@@ -227,12 +227,12 @@ The workflow input accepts either a plain string or a JSON object that bundles `
 The shell snippet below uses `jq` to read `last_feedback` from the prior result and pack it into the JSON input shape (install with `brew install jq` on macOS or `apt-get install jq` on Debian/Ubuntu):
 
 ```bash
-# First run — best effort, did not converge
-nat run --config_file configs/config-optimization.yml --input "momentum signals" > result1.json
+# First run - best effort, did not converge
+uv run nat run --config_file configs/config-optimization.yml --input "momentum signals" > result1.json
 
 # Extract last_feedback and resume
 SEED=$(jq -r '.last_feedback' result1.json)
-nat run --config_file configs/config-optimization.yml \
+uv run nat run --config_file configs/config-optimization.yml \
   --input "$(jq -nc --arg req 'momentum signals' --arg seed "$SEED" \
               '{request: $req, seed_feedback: $seed}')"
 ```
@@ -272,7 +272,8 @@ quantitative-signal-discovery-agent/
 ├── brev/
 │   └── launchable-setup.ipynb           # One-shot environment setup for Brev launchables
 ├── configs/
-│   └── config-optimization.yml          # Workflow + LLM config (single source of truth)
+│   ├── config-optimization.yml          # Workflow + LLM config with Phoenix tracing
+│   └── config-optimization-no-telemetry.yml # Brev/cloud config, no Phoenix tracing
 ├── notebooks/
 │   ├── signal-discovery-workflow.ipynb  # Interactive walkthrough
 │   └── images/workflow-architecture.png

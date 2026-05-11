@@ -207,7 +207,7 @@ def compute_rank_ic(
         t_stat = mean_ic / (ic_std / np.sqrt(num_periods)) if ic_std > 0 else None
         p_value = (
             float(2 * (1 - stats.t.cdf(abs(t_stat), df=num_periods - 1)))
-            if t_stat
+            if t_stat is not None
             else None
         )
 
@@ -347,7 +347,9 @@ def _detect_helpers(candidates: list[tuple[str, Any]]) -> set[str]:
 
 
 def execute_signal_code(
-    code: str, stock_data: dict[str, pd.DataFrame]
+    code: str,
+    stock_data: dict[str, pd.DataFrame],
+    selection_periods: int = 5,
 ) -> tuple[pd.DataFrame, str] | None:
     """
     Execute self-contained signal code and call its signal function(s).
@@ -358,6 +360,9 @@ def execute_signal_code(
     DataFrames as arguments, and operators come from definitions in the
     module itself. This makes the saved ``signal_code`` portable: it can be
     copy-pasted into any Python session and run as-is.
+
+    ``selection_periods`` controls the forward-return horizon used to choose
+    the best signal when multiple signal functions are present.
 
     Returns the (signal_values, selected_signal_name) tuple of the highest-IC
     signal among those defined in ``code``, or None on failure.
@@ -428,7 +433,7 @@ def execute_signal_code(
 
                     if isinstance(result, pd.DataFrame):
                         forward_ret = (
-                            stock_data["Close"].shift(-5) / stock_data["Close"] - 1
+                            stock_data["Close"].shift(-selection_periods) / stock_data["Close"] - 1
                         )
                         valid_dates = result.dropna(how="all").index
                         sample_ics = []
