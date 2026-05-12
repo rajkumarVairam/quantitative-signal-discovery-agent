@@ -24,8 +24,8 @@ dependencies = [
   # Pin both NAT packages to the same compatible release line. Mixing different
   # minor versions of nvidia-nat-* causes ImportErrors like
   # "cannot import name 'register_dataset_loader' from 'nat.cli.register_workflow'".
-  "nvidia-nat[langchain]==1.4.*",
-  "nvidia-nat-phoenix==1.4.*",
+  "nvidia-nat[langchain]==1.6.*",
+  "nvidia-nat-phoenix==1.6.*",
   "pandas",
   "numpy",
   "scipy",
