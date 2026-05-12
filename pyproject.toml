@@ -45,6 +45,9 @@ test = ["pytest>=8.0"]
 [project.entry-points.'nat.components']
 signal_discovery_workflow = "signal_discovery_workflow.register"
 
+[tool.uv]
+managed = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
