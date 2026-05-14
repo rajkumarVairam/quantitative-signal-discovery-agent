@@ -52,10 +52,8 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Create venv and install package
-        run: |
-          uv venv --python 3.12
-          uv pip install -e ".[test]"
+      - name: Create venv and install locked dependencies
+        run: uv sync --locked --extra test
 
       - name: Run pytest
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run --locked pytest tests/ -v --tb=short

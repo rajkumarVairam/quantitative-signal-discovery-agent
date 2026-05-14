@@ -36,8 +36,7 @@ export NVIDIA_API_KEY="your-api-key-here"
 ### Installing Dependencies
 
 ```bash
-uv venv
-uv pip install -e .
+uv sync --locked
 ```
 
 (All commands below use `uv run ...` so you don't need to activate the venv. If you prefer to activate it once and drop the `uv run` prefix, run `source .venv/bin/activate` first.)
@@ -258,8 +257,8 @@ The `last_feedback` field can be persisted to disk and re-loaded later — there
 Tests cover the agent helpers, prompt builders, JSON parsing, module assembly, and end-to-end execution:
 
 ```bash
-uv pip install -e ".[test]"
-uv run pytest tests/
+uv sync --locked --extra test
+uv run --locked pytest tests/
 ```
 
 The repo also ships a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs `ruff` lint and the test suite on every pull request to `main`.
