@@ -41,7 +41,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
 
-from .llm_utils import NO_THINK_INSTRUCTION, extract_response_text
+from .llm_utils import NO_THINK_INSTRUCTION, extract_json_array, extract_response_text
 from .signal_code_generator import generate_signal_code
 from .signal_evaluator import (
     compute_forward_returns,
@@ -80,8 +80,8 @@ def _compose_feedback(
         return advice
 
     try:
-        best_signals = json.loads(best_result["signal_json"])
-        items = best_signals if isinstance(best_signals, list) else [best_signals]
+        best_signals = extract_json_array(best_result["signal_json"])
+        items = best_signals if best_signals else [json.loads(best_result["signal_json"])]
         best_summary = "\n".join(
             f"- {f.get('name', '?')}: {f.get('formula', '?')}"
             for f in items if isinstance(f, dict)
@@ -140,7 +140,10 @@ def _format_workflow_result(
     """
     signals_summary = []
     try:
-        data = json.loads(signal_json) if signal_json else []
+        data = extract_json_array(signal_json) if signal_json else []
+        if not data and signal_json:
+            parsed = json.loads(signal_json)
+            data = parsed if isinstance(parsed, list) else [parsed]
         items = data if isinstance(data, list) else [data]
         for item in items:
             if not isinstance(item, dict):
