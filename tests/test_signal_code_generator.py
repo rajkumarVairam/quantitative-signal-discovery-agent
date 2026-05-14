@@ -118,6 +118,21 @@ class TestParseSignalSpecs:
         specs = parse_signal_specs(json.dumps([signal]), valid_op_names)
         assert specs[0]["fields"] == ["Close"]
 
+    def test_normalizes_common_close_aliases(self, valid_op_names):
+        signal = _signal("F1", "TS_Return(Adj_Close, 20)", fields=["Adj_Close"])
+        specs = parse_signal_specs(json.dumps([signal]), valid_op_names)
+        assert specs[0]["formula"] == "TS_Return(Close, 20)"
+        assert specs[0]["fields"] == ["Close"]
+
+    def test_formula_fields_are_kept_when_declared_fields_are_wrong(self, valid_op_names):
+        signal = _signal(
+            "F1",
+            "Mul(TS_Return(Close, 20), Rank(Decay_Linear(Volume, 20)))",
+            fields=["Volume"],
+        )
+        specs = parse_signal_specs(json.dumps([signal]), valid_op_names)
+        assert specs[0]["fields"] == ["Close", "Volume"]
+
 
 # ---------------------------------------------------------------------------
 # parse_signal_specs_with_errors — error surfacing for the orchestrator

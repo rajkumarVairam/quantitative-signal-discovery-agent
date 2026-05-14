@@ -349,6 +349,7 @@ No prose, no preamble. Format:
         best_result: dict | None = None
         best_ic: float | None = None
         feedback: str | None = seed_feedback
+        last_error: str | None = None
 
         if seed_feedback:
             logger.info(f"Resuming with seed feedback ({len(seed_feedback)} chars)")
@@ -370,6 +371,8 @@ No prose, no preamble. Format:
             logger.info("Evaluating IC...")
             ic_results = evaluate_ic(signal_code)
             mean_ic = ic_results.get("mean_ic")
+            if ic_results.get("error"):
+                last_error = str(ic_results["error"])
 
             if mean_ic is not None:
                 logger.info(f"Mean IC: {mean_ic:.4f}, p-value: {ic_results.get('p_value', 'N/A')}")
@@ -406,6 +409,7 @@ No prose, no preamble. Format:
             # and feed the structural errors directly to the next iteration so
             # the generator can self-correct.
             if codegen_errors and mean_ic is None:
+                last_error = "; ".join(codegen_errors)
                 advice = (
                     "Your previous signals were ALL REJECTED before evaluation. "
                     "Re-read each operator signature carefully and match the argument "
@@ -451,7 +455,7 @@ No prose, no preamble. Format:
             iteration=0,
             total_iterations=config.max_iterations,
             signal_json="",
-            ic_results={},
+            ic_results={"error": last_error} if last_error else {},
             saved_path=None,
             config=config,
             last_feedback=feedback,

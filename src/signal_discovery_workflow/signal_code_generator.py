@@ -68,6 +68,22 @@ from .signal_generator import (
 
 logger = logging.getLogger(__name__)
 
+DATA_FIELD_ALIASES = {
+    "adj_close": "Close",
+    "adjclose": "Close",
+    "adjusted_close": "Close",
+    "adjustedclose": "Close",
+    "close_price": "Close",
+    "closing_price": "Close",
+    "price": "Close",
+    "open_price": "Open",
+    "opening_price": "Open",
+    "high_price": "High",
+    "low_price": "Low",
+    "trading_volume": "Volume",
+    "volume_traded": "Volume",
+}
+
 
 def _python_function_name(name: str | None, index: int) -> str:
     """Convert a signal's display name into a valid ``signal_*`` Python identifier."""
@@ -84,6 +100,30 @@ def _python_function_name(name: str | None, index: int) -> str:
 def _infer_fields_from_formula(formula: str) -> list[str]:
     """Detect which OHLCV fields the formula references."""
     return [f for f in ("Open", "Close", "High", "Low", "Volume") if re.search(rf"\b{f}\b", formula)]
+
+
+def _normalize_data_field_names(text: str) -> str:
+    """Replace common LLM-emitted data-field aliases with canonical OHLCV names."""
+    canonical_by_lower = {f.lower(): f for f in VALID_DATA_FIELDS}
+
+    def replace(match: re.Match) -> str:
+        name = match.group(0)
+        lower = name.lower()
+        return canonical_by_lower.get(lower) or DATA_FIELD_ALIASES.get(lower) or name
+
+    return re.sub(r"\b[A-Za-z_][A-Za-z0-9_]*\b", replace, text)
+
+
+def _normalize_declared_fields(fields: Iterable) -> list[str]:
+    """Normalize the JSON ``data_fields_used`` list and discard unknown fields."""
+    normalized: list[str] = []
+    for field in fields:
+        if not isinstance(field, str):
+            continue
+        canonical = _normalize_data_field_names(field).strip()
+        if canonical in VALID_DATA_FIELDS and canonical not in normalized:
+            normalized.append(canonical)
+    return normalized
 
 
 def _check_formula_arity(formula: str, arities: dict[str, tuple[int, int]]) -> str | None:
@@ -167,14 +207,19 @@ def parse_signal_specs_with_errors(
         formula = normalize_operator_names(
             sanitize_unicode(signal["formula"]).strip(), valid_operators
         )
+        formula = _normalize_data_field_names(formula)
 
         arity_error = _check_formula_arity(formula, arities)
         if arity_error:
             skipped.append(f"#{idx} ({signal.get('name', '?')}: {arity_error})")
             continue
 
-        fields = signal.get("data_fields_used") or _infer_fields_from_formula(formula)
-        fields = [f for f in fields if f in VALID_DATA_FIELDS]
+        formula_fields = _infer_fields_from_formula(formula)
+        declared_fields = _normalize_declared_fields(signal.get("data_fields_used") or [])
+        fields = []
+        for field in [*formula_fields, *declared_fields]:
+            if field not in fields:
+                fields.append(field)
         if not fields:
             fields = ["Close"]
 
