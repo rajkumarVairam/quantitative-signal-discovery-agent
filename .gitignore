@@ -11,6 +11,7 @@ src/signal_discovery_workflow/data/sp500/*.csv
 # Secrets — never commit API keys.
 .env
 .env.local
+.streamlit/secrets.toml
 
 # Local documentation (not for upstream)
 docs/
