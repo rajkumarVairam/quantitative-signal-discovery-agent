@@ -27,14 +27,37 @@ Opens at **http://localhost:8501**
 ```
 4:00 PM ET   Market closes
 4:15 PM ET   Yahoo Finance publishes closing prices
-5:00 PM CST  Windows Task Scheduler runs webapp/update_data.py
+5:00 PM local  Windows Task Scheduler runs webapp/update_data.py
                → downloads latest prices for all 386 S&P 500 stocks
                → overwrites CSV files in src/signal_discovery_workflow/data/sp500/
                → logs result to webapp/update_data.log
-6:00 PM CST  Dashboard cache expires → next page visit shows fresh data
+6:00 PM local  Dashboard cache expires → next page visit shows fresh data
 ```
 
-To refresh manually at any time, click the **Refresh** button in the top-right corner of the dashboard.
+### Setting Up the Daily Scheduler (one-time)
+
+Run this once from the project root in PowerShell to register the Task Scheduler job:
+
+```powershell
+.\webapp\setup_scheduler.ps1
+```
+
+The task runs `update_data.py` every day at **5:00 PM local time** — after Yahoo Finance publishes closing prices. It also catches up automatically if your machine was off at the scheduled time.
+
+**Other options:**
+
+```powershell
+# Change the run time (e.g. 6:00 PM)
+.\webapp\setup_scheduler.ps1 -RunAt "18:00"
+
+# Run the refresh immediately (without waiting for the schedule)
+Start-ScheduledTask -TaskName "SP500-Signal-DataRefresh"
+
+# Remove the scheduled task
+.\webapp\setup_scheduler.ps1 -Uninstall
+```
+
+To refresh manually at any time, you can also click the **Refresh** button in the top-right corner of the dashboard.
 
 ---
 
