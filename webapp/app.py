@@ -6,9 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Make webapp/signals and webapp/auth importable regardless of working directory
+# Make webapp/signals importable regardless of working directory
 sys.path.insert(0, str(Path(__file__).parent))
-from auth import is_authenticated, login_page, logout
 from signals import (
     build_report,
     compute_position_size,
@@ -25,9 +24,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-if not is_authenticated():
-    login_page()
-    st.stop()
 
 # ── Cached data loader ─────────────────────────────────────────────────────────
 
@@ -55,20 +51,15 @@ def _fmt_pct(v):
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
-col_title, col_refresh, col_logout = st.columns([6, 0.8, 0.8])
+col_title, col_btn = st.columns([6, 1])
 with col_title:
     st.title("📈 S&P 500 Quantitative Signal Dashboard")
-with col_refresh:
+with col_btn:
     st.write("")
     st.write("")
     if st.button("🔄 Refresh", use_container_width=True, type="primary"):
         st.cache_data.clear()
         st.rerun()
-with col_logout:
-    st.write("")
-    st.write("")
-    if st.button("🔓 Logout", use_container_width=True):
-        logout()
 
 st.divider()
 
