@@ -46,7 +46,7 @@ workflow:
   optimization_advisor_llm: optimization_advisor
   ic_threshold: 0.02
   p_value_threshold: 0.05
-  max_iterations: 3
+  max_iterations: 5
   num_signals: 2
   forward_periods: 5
   save_results: true
