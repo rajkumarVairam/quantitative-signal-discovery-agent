@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 import sys
 
@@ -10,9 +9,9 @@ import streamlit as st
 # Make webapp/signals importable regardless of working directory
 sys.path.insert(0, str(Path(__file__).parent))
 from signals import (
-    DATA_DIR,
     build_report,
     compute_position_size,
+    latest_trading_date,
     load_data,
 )
 
@@ -28,16 +27,9 @@ st.set_page_config(
 # ── Cached data loader ─────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600)
-def get_report() -> pd.DataFrame:
-    return build_report(load_data())
-
-
-def data_timestamp() -> str:
-    path = DATA_DIR / "Close.csv"
-    if path.exists():
-        mtime = datetime.fromtimestamp(path.stat().st_mtime)
-        return mtime.strftime("%b %d, %Y  %I:%M %p")
-    return "Unknown"
+def get_report() -> tuple[pd.DataFrame, str]:
+    data = load_data()
+    return build_report(data), latest_trading_date(data)
 
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
@@ -61,10 +53,6 @@ def _fmt_pct(v):
 col_title, col_btn = st.columns([6, 1])
 with col_title:
     st.title("📈 S&P 500 Quantitative Signal Dashboard")
-    st.caption(
-        f"Data as of: **{data_timestamp()} CST** · "
-        "Auto-refreshes daily at 5 PM CST · Cache TTL: 1 hour"
-    )
 with col_btn:
     st.write("")
     st.write("")
@@ -76,8 +64,12 @@ st.divider()
 
 # ── Load report ────────────────────────────────────────────────────────────────
 
-with st.spinner("Computing signals across 386 stocks…"):
-    df = get_report()
+with st.spinner("Fetching live data from Yahoo Finance…"):
+    df, data_date = get_report()
+
+st.caption(
+    f"Data as of: **{data_date}** · Live from Yahoo Finance · Cache TTL: 1 hour"
+)
 
 # ── KPI cards ──────────────────────────────────────────────────────────────────
 

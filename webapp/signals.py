@@ -1,9 +1,11 @@
-from pathlib import Path
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
+import yfinance as yf
 
-DATA_DIR = Path(__file__).parent.parent / "src" / "signal_discovery_workflow" / "data" / "sp500"
+# 120 calendar days ≈ 85 trading days — enough for the 50-day lookback signals
+LOOKBACK_DAYS = 120
 
 MEAN_REV_WEIGHT = 0.45
 MOMENTUM_WEIGHT = 0.45
@@ -12,25 +14,78 @@ VOLATILITY_WEIGHT = 0.10  # low vol is desirable, so we use (1 - vol_rank)
 ATR_STOP_MULT = 1.5   # stop loss = entry - 1.5 × ATR
 ATR_TARGET_MULT = 2.5  # take profit = entry + 2.5 × ATR
 
+SP500_TICKERS = [
+    'A', 'AAPL', 'ABT', 'ACGL', 'ACN', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEE', 'AEP', 'AES', 'AFL', 'AIG',
+    'AIZ', 'AJG', 'AKAM', 'ALB', 'ALGN', 'ALL', 'AMAT', 'AMD', 'AME', 'AMGN', 'AMT', 'AMZN', 'AON', 'AOS', 'APA',
+    'APD', 'APH', 'ARE', 'ATO', 'AVB', 'AVY', 'AXON', 'AXP', 'AZO',
+    'BA', 'BAC', 'BALL', 'BAX', 'BBWI', 'BBY', 'BDX', 'BEN', 'BG', 'BIIB', 'BIO', 'BK', 'BKNG', 'BKR', 'BLK',
+    'BMY', 'BRO', 'BSX', 'BWA', 'BXP',
+    'C', 'CAG', 'CAH', 'CAT', 'CB', 'CBRE', 'CCI', 'CCL', 'CDNS', 'CHD', 'CHRW', 'CI', 'CINF', 'CL', 'CLX', 'CMA',
+    'CMCSA', 'CME', 'CMI', 'CMS', 'CNC', 'CNP', 'COF', 'COO', 'COP', 'COR', 'COST', 'CPB', 'CPRT', 'CPT', 'CRL',
+    'CRM', 'CSCO', 'CSGP', 'CSX', 'CTAS', 'CTRA', 'CTSH', 'CVS', 'CVX',
+    'D', 'DD', 'DE', 'DECK', 'DGX', 'DHI', 'DHR', 'DIS', 'DLR', 'DLTR', 'DOC', 'DOV', 'DPZ', 'DRI', 'DTE', 'DUK',
+    'DVA', 'DVN',
+    'EA', 'EBAY', 'ECL', 'ED', 'EFX', 'EG', 'EIX', 'EL', 'ELV', 'EMN', 'EMR', 'EOG', 'EQIX', 'EQR', 'EQT', 'ES',
+    'ESS', 'ETN', 'ETR', 'EVRG', 'EW', 'EXC', 'EXPD', 'EXR',
+    'F', 'FAST', 'FCX', 'FDS', 'FDX', 'FE', 'FFIV', 'FI', 'FICO', 'FIS', 'FITB', 'FMC', 'FRT',
+    'GD', 'GE', 'GEN', 'GILD', 'GIS', 'GL', 'GLW', 'GOOG', 'GOOGL', 'GPC', 'GPN', 'GRMN', 'GS', 'GWW',
+    'HAL', 'HAS', 'HBAN', 'HD', 'HIG', 'HOLX', 'HON', 'HPQ', 'HRL', 'HSIC', 'HST', 'HSY', 'HUBB', 'HUM',
+    'IBM', 'IDXX', 'IEX', 'IFF', 'ILMN', 'INCY', 'INTC', 'INTU', 'IP', 'IPG', 'IRM', 'ISRG', 'IT', 'ITW', 'IVZ',
+    'J', 'JBHT', 'JBL', 'JCI', 'JKHY', 'JNJ', 'JPM',
+    'K', 'KEY', 'KIM', 'KLAC', 'KMB', 'KMX', 'KO', 'KR',
+    'L', 'LEN', 'LH', 'LHX', 'LIN', 'LKQ', 'LLY', 'LMT', 'LNT', 'LOW', 'LRCX', 'LUV', 'LVS',
+    'MAA', 'MAR', 'MAS', 'MCD', 'MCHP', 'MCK', 'MCO', 'MDLZ', 'MDT', 'MET', 'MGM', 'MHK', 'MKC', 'MKTX', 'MLM',
+    'MMC', 'MMM', 'MNST', 'MO', 'MOH', 'MOS', 'MPWR', 'MRK', 'MS', 'MSFT', 'MSI', 'MTB', 'MTCH', 'MTD', 'MU',
+    'NDAQ', 'NDSN', 'NEE', 'NEM', 'NFLX', 'NI', 'NKE', 'NOC', 'NRG', 'NSC', 'NTAP', 'NTRS', 'NUE', 'NVDA', 'NVR',
+    'O', 'ODFL', 'OKE', 'OMC', 'ON', 'ORCL', 'ORLY', 'OXY',
+    'PAYX', 'PCAR', 'PCG', 'PEG', 'PEP', 'PFE', 'PFG', 'PG', 'PGR', 'PH', 'PHM', 'PKG', 'PLD', 'PNC', 'PNR',
+    'PNW', 'POOL', 'PPG', 'PPL', 'PRU', 'PSA', 'PTC', 'PWR', 'QCOM',
+    'RCL', 'REG', 'REGN', 'RF', 'RHI', 'RJF', 'RL', 'RMD', 'ROK', 'ROL', 'ROP', 'ROST', 'RSG', 'RTX', 'RVTY',
+    'SBAC', 'SBUX', 'SCHW', 'SHW', 'SJM', 'SLB', 'SNA', 'SNPS', 'SO', 'SPG', 'SPGI', 'SRE', 'STE', 'STLD', 'STT',
+    'STX', 'STZ', 'SWK', 'SWKS', 'SYK', 'SYY',
+    'T', 'TAP', 'TDY', 'TECH', 'TER', 'TFC', 'TFX', 'TGT', 'TJX', 'TMO', 'TPR', 'TRMB', 'TROW', 'TRV', 'TSCO',
+    'TSN', 'TT', 'TTWO', 'TXN', 'TXT', 'TYL',
+    'UDR', 'UHS', 'UNH', 'UNP', 'UPS', 'URI', 'USB',
+    'VLO', 'VMC', 'VRSN', 'VRTX', 'VTR', 'VTRS', 'VZ',
+    'WAB', 'WAT', 'WDC', 'WEC', 'WELL', 'WFC', 'WM', 'WMB', 'WMT', 'WRB', 'WST', 'WTW', 'WY', 'WYNN',
+    'XEL', 'XOM', 'YUM', 'ZBH', 'ZBRA',
+]
+
 
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 def load_data() -> dict[str, pd.DataFrame]:
+    """Fetch the last LOOKBACK_DAYS of OHLCV data for all S&P 500 tickers live from Yahoo Finance."""
+    end = date.today().strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+
+    raw = yf.download(
+        SP500_TICKERS,
+        start=start,
+        end=end,
+        group_by="column",
+        auto_adjust=True,
+        progress=False,
+    )
+
     data = {}
     for field in ["Open", "Close", "High", "Low", "Volume"]:
-        path = DATA_DIR / f"{field}.csv"
-        data[field] = pd.read_csv(path, index_col=0, parse_dates=True)
+        if field in raw.columns.get_level_values(0):
+            df = raw[field].copy()
+            df.index.name = "Date"
+            data[field] = df.dropna(axis=1, how="all")
+
     return data
+
+
+def latest_trading_date(data: dict[str, pd.DataFrame]) -> str:
+    idx = data.get("Close", pd.DataFrame()).index
+    return idx[-1].strftime("%b %d, %Y") if len(idx) > 0 else "Unknown"
 
 
 # ── Core signals ───────────────────────────────────────────────────────────────
 
 def signal_mean_reversion(close: pd.DataFrame) -> pd.DataFrame:
-    """Rank( Div( Decay_Linear(Close, 20), Close ) )
-
-    Linearly-weighted 20-day average price divided by today's close.
-    High rank → price fell below its recent weighted average → bounce expected.
-    """
     weights = np.arange(1, 21, dtype=float)
     weights /= weights.sum()
     decay = close.rolling(20).apply(lambda x: np.dot(x, weights), raw=True)
@@ -38,21 +93,10 @@ def signal_mean_reversion(close: pd.DataFrame) -> pd.DataFrame:
 
 
 def signal_volatility(close: pd.DataFrame) -> pd.DataFrame:
-    """TS_Std( TS_Return(Close, 1), 10 )
-
-    10-day standard deviation of daily returns.
-    High rank → more volatile stock (bigger swings, higher risk).
-    In the composite score volatility rank is inverted (low vol is preferred).
-    """
     return close.pct_change(1).rolling(10).std().rank(axis=1, pct=True)
 
 
 def signal_momentum(close: pd.DataFrame, open_: pd.DataFrame) -> pd.DataFrame:
-    """Mul( TS_Return(Close, 10), TS_Mean(Open, 30) )
-
-    10-day price return × 30-day average open price.
-    High rank → strong recent momentum (trend-following signal).
-    """
     raw = close.pct_change(10) * open_.rolling(30).mean()
     return raw.rank(axis=1, pct=True)
 
@@ -81,18 +125,15 @@ def compute_atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, peri
 
 
 def compute_volume_surge(volume: pd.DataFrame, period: int = 20) -> pd.Series:
-    """Today's volume divided by N-day average. >1.5 = unusual institutional activity."""
     return (volume / volume.rolling(period).mean()).iloc[-1]
 
 
 def compute_price_vs_ma20(close: pd.DataFrame) -> pd.Series:
-    """Percentage distance from the 20-day moving average. Negative = below average."""
     ma20 = close.rolling(20).mean()
     return ((close - ma20) / ma20 * 100).iloc[-1]
 
 
 def compute_trend_50d(close: pd.DataFrame) -> pd.Series:
-    """50-day price return as a percentage."""
     return (close.pct_change(50) * 100).iloc[-1]
 
 
@@ -127,11 +168,6 @@ def _assign_action(row: pd.Series) -> str:
 # ── Position sizing helper ─────────────────────────────────────────────────────
 
 def compute_position_size(account: float, risk_pct: float, price: float, atr: float) -> dict:
-    """
-    Standard ATR-based position sizing.
-    Risk amount = account × risk_pct
-    Shares = floor(risk_amount / (ATR_STOP_MULT × ATR))
-    """
     risk_amount = account * risk_pct
     stop_distance = ATR_STOP_MULT * atr
     shares = int(risk_amount / stop_distance) if stop_distance > 0 else 0
@@ -153,12 +189,10 @@ def build_report(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     low = data["Low"]
     volume = data["Volume"]
 
-    # Run signals on full history then extract latest row
     mr_rank = signal_mean_reversion(close).iloc[-1]
     vol_rank = signal_volatility(close).iloc[-1]
     mom_rank = signal_momentum(close, open_).iloc[-1]
 
-    # Additional metrics (each returns a Series of latest values)
     rsi = compute_rsi(close)
     atr = compute_atr(high, low, close)
     vsurge = compute_volume_surge(volume)
@@ -168,7 +202,6 @@ def build_report(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     ret5d = compute_ret_5d(close)
     latest_close = close.iloc[-1]
 
-    # Align on tickers that have valid data across all signals
     tickers = (
         latest_close.dropna().index
         .intersection(mr_rank.dropna().index)
@@ -185,7 +218,6 @@ def build_report(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     df["vol_rank"] = vol_rank[tickers]
     df["momentum_rank"] = mom_rank[tickers]
 
-    # Composite: vol rank is inverted because low volatility is preferred
     df["composite_score"] = (
         MEAN_REV_WEIGHT * df["mean_rev_rank"]
         + MOMENTUM_WEIGHT * df["momentum_rank"]
