@@ -56,7 +56,10 @@ SP500_TICKERS = [
 
 def load_data() -> dict[str, pd.DataFrame]:
     """Fetch the last LOOKBACK_DAYS of OHLCV data for all S&P 500 tickers live from Yahoo Finance."""
-    end = date.today().strftime("%Y-%m-%d")
+    # end must be tomorrow: yfinance treats end as exclusive, so today's bar
+    # would be missing without the +1. After ~4:15 PM ET Yahoo publishes the
+    # day's final close and it becomes available in the next cache refresh.
+    end = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
     start = (date.today() - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     raw = yf.download(
