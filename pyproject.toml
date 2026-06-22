@@ -41,6 +41,11 @@ classifiers = ["Programming Language :: Python"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
+webapp = [
+    "streamlit>=1.35",
+    "plotly>=5.20",
+    "matplotlib>=3.7",
+]
 
 [project.entry-points.'nat.components']
 signal_discovery_workflow = "signal_discovery_workflow.register"
